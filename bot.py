@@ -3,6 +3,8 @@ import time
 import asyncio
 import requests
 
+ALLOWED_USERS = {568945385, 325575727}
+
 from datetime import date, timedelta, datetime, time as dt_time
 from zoneinfo import ZoneInfo
 
