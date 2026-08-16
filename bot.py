@@ -35,10 +35,9 @@ def get_option_chain(symbol):
         "Authorization": f"Bearer {MARKETDATA_TOKEN}"
     }
 
-    
-params = {
-    "dte": "5"
-}
+    params = {
+        "dte": 5
+    }
 
     response = requests.get(
         url,
@@ -138,8 +137,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📊 تقييم عقد أوبشن\n"
             "🎯 تقييم فرصة\n\n"
             "البحث يعطيك أفضل 5 عقود حسب معايير السيولة "
-            "والـ Delta والـ DTE والـ Spread."
-            ,
+            "والـ Delta والـ DTE والـ Spread.",
             reply_markup=main_menu(),
         )
 
@@ -216,7 +214,9 @@ def get_top_contracts(data):
 
     for field in fields:
         if field not in data:
-            raise ValueError(f"بيانات {field} غير موجودة في الاستجابة.")
+            raise ValueError(
+                f"بيانات {field} غير موجودة في الاستجابة."
+            )
 
     count = len(data["optionSymbol"])
 
@@ -249,7 +249,6 @@ def get_top_contracts(data):
             bid = float(bid)
             ask = float(ask)
             mid = float(mid)
-
             volume = int(volume)
             oi = int(oi)
             delta = float(delta)
@@ -315,8 +314,7 @@ def format_top_contracts(symbol, contracts):
     if not contracts:
         return (
             f"🔎 نتائج البحث عن {symbol}\n\n"
-            "❌ لم أجد عقودًا مناسبة حسب الفلاتر الحالية.\n\n"
-            "جرّبي سهمًا آخر أو نخفف الفلاتر."
+            "❌ لم أجد عقودًا مناسبة حسب الفلاتر الحالية."
         )
 
     message = (
@@ -325,7 +323,6 @@ def format_top_contracts(symbol, contracts):
     )
 
     for index, contract in enumerate(contracts, start=1):
-
         message += (
             f"{index}️⃣ {contract['side']} "
             f"{contract['strike']:g}\n"
@@ -343,14 +340,15 @@ def format_top_contracts(symbol, contracts):
     return message
 
 
-async def analyze_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def analyze_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     text = update.message.text.strip()
     mode = context.user_data.get("mode")
 
     try:
-
         if mode == "scan":
-
             symbol = text.upper().strip()
 
             if not symbol.isalpha() or len(symbol) > 6:
@@ -366,13 +364,8 @@ async def analyze_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             data = get_option_chain(symbol)
-
             contracts = get_top_contracts(data)
-
-            result = format_top_contracts(
-                symbol,
-                contracts
-            )
+            result = format_top_contracts(symbol, contracts)
 
             await update.message.reply_text(
                 result,
@@ -382,7 +375,6 @@ async def analyze_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["mode"] = None
 
         elif mode == "contract":
-
             parts = text.split()
 
             if len(parts) != 8:
@@ -423,7 +415,6 @@ async def analyze_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["mode"] = None
 
         elif mode == "opportunity":
-
             parts = text.split()
 
             if len(parts) != 5:
@@ -460,16 +451,16 @@ async def analyze_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["mode"] = None
 
         else:
-
             await update.message.reply_text(
                 "اضغطي /start أولًا واختاري نوع التحليل.",
                 reply_markup=main_menu(),
             )
 
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as e:
+        print("MARKETDATA ERROR:", e)
+
         await update.message.reply_text(
-            "⚠️ تعذر الاتصال ببيانات السوق حاليًا.\n\n"
-            "تأكدي من MARKETDATA_TOKEN ثم جربي مرة ثانية.",
+            "⚠️ تعذر الاتصال ببيانات السوق حاليًا.",
             reply_markup=main_menu(),
         )
 
@@ -484,7 +475,6 @@ async def analyze_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-
     if not TOKEN:
         raise RuntimeError("BOT_TOKEN is missing")
 
