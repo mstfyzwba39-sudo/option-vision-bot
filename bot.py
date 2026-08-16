@@ -1,6 +1,7 @@
 import os
 import threading
 import requests
+from datetime import date, timedelta
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -35,8 +36,13 @@ def get_option_chain(symbol):
         "Authorization": f"Bearer {MARKETDATA_TOKEN}"
     }
 
+    today = date.today()
+    from_date = (today + timedelta(days=5)).isoformat()
+    to_date = (today + timedelta(days=30)).isoformat()
+
     params = {
-        "dte": 5
+        "from": from_date,
+        "to": to_date
     }
 
     response = requests.get(
@@ -136,8 +142,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔎 البحث عن أفضل العقود\n"
             "📊 تقييم عقد أوبشن\n"
             "🎯 تقييم فرصة\n\n"
-            "البحث يعطيك أفضل 5 عقود حسب معايير السيولة "
-            "والـ Delta والـ DTE والـ Spread.",
+            "البحث يعطيك أفضل 5 عقود بانتهاء من 5 إلى 30 يوم "
+            "حسب السيولة والـ Delta والـ DTE والـ Spread.",
             reply_markup=main_menu(),
         )
 
@@ -177,10 +183,8 @@ def contract_score(delta, volume, oi, spread_pct, dte):
 
     if 5 <= dte <= 30:
         score += 15
-    elif 2 <= dte <= 45:
-        score += 8
     else:
-        score += 3
+        score += 0
 
     return min(score, 100)
 
@@ -253,6 +257,9 @@ def get_top_contracts(data):
             oi = int(oi)
             delta = float(delta)
 
+            if dte < 5 or dte > 30:
+                continue
+
             if mid <= 0 or ask <= 0:
                 continue
 
@@ -314,11 +321,13 @@ def format_top_contracts(symbol, contracts):
     if not contracts:
         return (
             f"🔎 نتائج البحث عن {symbol}\n\n"
-            "❌ لم أجد عقودًا مناسبة حسب الفلاتر الحالية."
+            "❌ لم أجد عقودًا مناسبة من 5 إلى 30 يوم "
+            "حسب الفلاتر الحالية."
         )
 
     message = (
         f"🔎 أفضل 5 عقود لـ {symbol}\n"
+        f"📅 نطاق الانتهاء: 5 - 30 يوم\n"
         f"━━━━━━━━━━━━━━\n\n"
     )
 
@@ -360,6 +369,7 @@ async def analyze_message(
 
             await update.message.reply_text(
                 f"🔎 جاري البحث عن أفضل عقود {symbol}...\n\n"
+                "📅 النطاق: 5 - 30 يوم\n"
                 "⏳ لحظة..."
             )
 
