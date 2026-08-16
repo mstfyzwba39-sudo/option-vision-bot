@@ -18,6 +18,7 @@ TOKEN = os.environ.get("BOT_TOKEN")
 MARKETDATA_TOKEN = os.environ.get("MARKETDATA_TOKEN")
 
 MAX_OPTION_ASK = 3.00
+MIN_TOP_SCORE = 80
 
 SCAN_SYMBOLS = [
     "TSLA", "NVDA", "AAPL", "AMD", "AMZN",
@@ -25,6 +26,11 @@ SCAN_SYMBOLS = [
     "PLTR", "COIN", "MSTR", "SOFI", "INTC",
     "MU", "QCOM", "ARM", "SMCI", "HOOD",
     "RIVN", "LCID", "MARA", "TSM", "NIO",
+    "BA", "DIS", "UBER", "SHOP", "SNAP",
+    "PYPL", "CRM", "ORCL", "ADBE", "BABA",
+    "JD", "PDD", "WMT", "COST", "JPM",
+    "BAC", "C", "GS", "XOM", "CVX",
+    "GM", "F", "DKNG", "RBLX", "CRWD",
 ]
 
 TOP10_CACHE = {
@@ -330,7 +336,7 @@ def main_menu():
     keyboard = [
         [
             InlineKeyboardButton(
-                "🏆 أفضل 10 فرص لليوم",
+                "🏆 أفضل فرص اليوم",
                 callback_data="top10"
             )
         ],
@@ -645,7 +651,6 @@ def get_top_contracts(
             bid = float(bid)
             ask = float(ask)
             mid = float(mid)
-
             volume = int(volume)
             oi = int(oi)
             delta = float(delta)
@@ -653,7 +658,6 @@ def get_top_contracts(
             if dte < 5 or dte > 30:
                 continue
 
-            # شرط السعر ثابت
             if ask > MAX_OPTION_ASK:
                 continue
 
@@ -670,7 +674,6 @@ def get_top_contracts(
                 * 100
             )
 
-            # الفلاتر المخففة
             if volume < 50:
                 continue
 
@@ -806,12 +809,8 @@ def analyze_symbol(symbol):
 def scan_top10():
 
     now = time.time()
-
     cached = TOP10_CACHE["results"]
-
-    cache_age = (
-        now - TOP10_CACHE["time"]
-    )
+    cache_age = now - TOP10_CACHE["time"]
 
     if (
         cached is not None
@@ -829,10 +828,27 @@ def scan_top10():
                 symbol
             )
 
-            if result:
-                results.append(
-                    result
-                )
+            if not result:
+                continue
+
+            trend = result["trend"]
+            contract = result["contract"]
+
+            # قائمة أفضل اليوم لا تقبل الاتجاه المحايد
+            if trend["bias"] == "NEUTRAL":
+                continue
+
+            # العقد لازم يكون بنفس اتجاه السهم
+            if contract["side"] != trend["bias"]:
+                continue
+
+            # أقل تقييم مسموح في أفضل الفرص
+            if contract["score"] < MIN_TOP_SCORE:
+                continue
+
+            results.append(
+                result
+            )
 
         except Exception as e:
 
@@ -843,8 +859,12 @@ def scan_top10():
             continue
 
     results.sort(
-        key=lambda x:
-            -x["internal_score"]
+        key=lambda x: (
+            -x["internal_score"],
+            -x["trend"]["momentum_score"],
+            -x["contract"]["uoa_score"],
+            x["contract"]["spread_pct"]
+        )
     )
 
     top10 = results[:10]
@@ -861,15 +881,20 @@ def format_top10(results):
 
         return (
             "🏆 أفضل فرص اليوم\n\n"
-            "❌ لم أجد فرصًا مناسبة "
-            "بسعر Ask لا يتجاوز $3 حاليًا."
+            "❌ لم أجد فرصًا تحقق جميع الشروط حاليًا.\n\n"
+            "الشروط:\n"
+            "✅ مع اتجاه السهم\n"
+            "✅ تقييم 80 فأعلى\n"
+            "✅ Ask لا يتجاوز $3"
         )
 
     message = (
-        "🏆 أفضل 10 فرص لليوم\n"
-        "💰 أقصى Ask للعقد: $3.00\n"
-        "📅 DTE: 5 - 30 يوم\n"
-        "━━━━━━━━━━━━━━\n\n"
+        f"🏆 أفضل {len(results)} فرص لليوم\n"
+        f"💰 أقصى Ask للعقد: $3.00\n"
+        f"⭐ الحد الأدنى للتقييم: {MIN_TOP_SCORE}/100\n"
+        f"🧭 فقط العقود الموافقة لاتجاه السهم\n"
+        f"📅 DTE: 5 - 30 يوم\n"
+        f"━━━━━━━━━━━━━━\n\n"
     )
 
     for index, item in enumerate(
@@ -889,6 +914,7 @@ def format_top10(results):
             f"{rating(contract['score'])}\n"
             f"📊 {trend['label']} | "
             f"زخم {trend['momentum_score']}/10\n"
+            f"🚀 {trend['continuation_label']}\n"
             f"💵 Ask: ${contract['ask']:.2f}\n"
             f"📅 DTE: {contract['dte']}\n"
             f"📈 Delta: {contract['delta']:.2f}\n"
@@ -939,14 +965,12 @@ def format_top_contracts(
     ):
 
         if contract["market_adjustment"] > 0:
-
             market_text = (
                 f"+{contract['market_adjustment']} "
                 f"✅ حركة داعمة"
             )
 
         elif contract["market_adjustment"] < 0:
-
             market_text = (
                 f"{contract['market_adjustment']} "
                 f"⚠️ حركة غير داعمة"
@@ -996,15 +1020,15 @@ async def buttons(
 ):
 
     query = update.callback_query
-
     await query.answer()
 
     if query.data == "top10":
 
         await query.message.reply_text(
-            "🏆 جاري فحص الأسهم "
-            "واختيار أفضل 10 فرص...\n\n"
-            "💰 فقط عقود Ask ≤ $3\n"
+            "🏆 جاري فحص 50 سهم واختيار أفضل الفرص...\n\n"
+            "✅ مع اتجاه السهم فقط\n"
+            "⭐ تقييم 80 فأعلى\n"
+            "💰 Ask ≤ $3\n"
             "⏳ قد يأخذ الفحص قليلًا من الوقت."
         )
 
@@ -1029,8 +1053,7 @@ async def buttons(
             )
 
             await query.message.reply_text(
-                "⚠️ تعذر إكمال "
-                "فحص أفضل 10 حاليًا.",
+                "⚠️ تعذر إكمال فحص أفضل الفرص حاليًا.",
                 reply_markup=main_menu(),
             )
 
@@ -1040,8 +1063,7 @@ async def buttons(
 
         await query.message.reply_text(
             "🔎 اكتب رمز الشركة:\n\n"
-            "مثال:\n"
-            "NVDA"
+            "مثال:\nNVDA"
         )
 
     elif query.data == "contract":
@@ -1066,10 +1088,12 @@ async def buttons(
     elif query.data == "help":
 
         await query.message.reply_text(
-            "ℹ️ البوت يبحث عن أي سهم منفردًا، "
-            "أو يمسح مجموعة أسهم ويطلع أفضل 10 فرص.\n\n"
-            "💰 جميع العقود يجب أن يكون "
-            "Ask فيها $3 أو أقل.",
+            "ℹ️ أفضل فرص اليوم تمسح 50 سهمًا وتعرض "
+            "حتى 10 فرص فقط إذا حققت الشروط:\n\n"
+            "✅ العقد مع اتجاه السهم\n"
+            "⭐ تقييم 80 فأعلى\n"
+            "💰 Ask لا يتجاوز $3\n\n"
+            "🔎 ويمكنك البحث يدويًا عن أي سهم آخر.",
             reply_markup=main_menu(),
         )
 
@@ -1080,10 +1104,7 @@ async def analyze_message(
 ):
 
     text = update.message.text.strip()
-
-    mode = context.user_data.get(
-        "mode"
-    )
+    mode = context.user_data.get("mode")
 
     try:
 
