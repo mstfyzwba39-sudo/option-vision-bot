@@ -35,10 +35,10 @@ def get_option_chain(symbol):
         "Authorization": f"Bearer {MARKETDATA_TOKEN}"
     }
 
-    params = {
-        "from": "5",
-        "to": "30"
-    }
+    
+params = {
+    "dte": "5"
+}
 
     response = requests.get(
         url,
