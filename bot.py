@@ -356,8 +356,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "help":
         await query.message.reply_text(
             "ℹ️ البوت يبحث عن أفضل عقود من 5 إلى 30 يوم، "
-            "ويقيم جودة العقد والاتجاه والزخم واستمرار الحركة، "
-            "ويضيف تقديرًا للنشاط غير الاعتيادي.",
+            "ويقيم جودة العقد والاتجاه والزخم واستمرار الحركة "
+            "والنشاط غير الاعتيادي.",
             reply_markup=main_menu(),
         )
 
@@ -434,27 +434,48 @@ def unusual_activity_score(volume, oi):
 
     ratio = volume / oi
 
+    ratio_points = 0
+    volume_points = 0
+    oi_points = 0
+
     if ratio >= 5:
-        score = 10
-        label = "🔥 استثنائي جدًا"
+        ratio_points = 5
     elif ratio >= 3:
-        score = 9
-        label = "🔥 مرتفع جدًا"
+        ratio_points = 4
     elif ratio >= 2:
-        score = 8
-        label = "🟢 مرتفع"
-    elif ratio >= 1.5:
-        score = 7
-        label = "🟢 قوي"
+        ratio_points = 3
     elif ratio >= 1:
-        score = 5
-        label = "🟡 ملحوظ"
+        ratio_points = 2
     elif ratio >= 0.5:
-        score = 3
-        label = "⚪ طبيعي"
+        ratio_points = 1
+
+    if volume >= 15000:
+        volume_points = 3
+    elif volume >= 7000:
+        volume_points = 2
+    elif volume >= 2500:
+        volume_points = 1
+
+    if oi >= 5000:
+        oi_points = 2
+    elif oi >= 1500:
+        oi_points = 1
+
+    score = min(
+        ratio_points + volume_points + oi_points,
+        10
+    )
+
+    if score >= 9:
+        label = "🔥 استثنائي جدًا"
+    elif score >= 7:
+        label = "🔥 مرتفع جدًا"
+    elif score >= 5:
+        label = "🟢 مرتفع"
+    elif score >= 3:
+        label = "🟡 ملحوظ"
     else:
-        score = 1
-        label = "⚪ منخفض"
+        label = "⚪ طبيعي"
 
     return score, ratio, label
 
@@ -501,9 +522,7 @@ def apply_market_score(base_score, side, trend):
         elif continuation >= 2:
             adjustment -= 2
 
-    final_score = base_score + adjustment
-
-    return final_score, adjustment
+    return adjustment
 
 
 def rating(score):
@@ -615,22 +634,25 @@ def get_top_contracts(data, trend):
                 )
             )
 
-            market_score, market_adjustment = apply_market_score(
+            market_adjustment = apply_market_score(
                 base_score,
                 side,
                 trend
             )
 
-            uoa_adjustment = round(uoa_score * 0.6)
+            uoa_adjustment = round(
+                uoa_score * 0.7
+            )
 
-            final_score = (
-                market_score
+            internal_score = (
+                base_score
+                + market_adjustment
                 + uoa_adjustment
             )
 
-            final_score = max(
+            display_score = max(
                 0,
-                min(final_score, 98)
+                min(round(internal_score), 98)
             )
 
             contracts.append(
@@ -652,7 +674,8 @@ def get_top_contracts(data, trend):
                     "uoa_label": uoa_label,
                     "uoa_adjustment": uoa_adjustment,
                     "market_adjustment": market_adjustment,
-                    "score": final_score,
+                    "internal_score": internal_score,
+                    "score": display_score,
                 }
             )
 
@@ -661,7 +684,7 @@ def get_top_contracts(data, trend):
 
     contracts.sort(
         key=lambda x: (
-            -x["score"],
+            -x["internal_score"],
             -x["uoa_score"],
             x["spread_pct"],
             -x["volume"],
