@@ -100,6 +100,12 @@ def get_stock_trend(symbol):
     sma10 = sum(closes[-10:]) / 10
     sma20 = sum(closes[-20:]) / 20
 
+    change_3 = (
+        (last_close - closes[-4]) / closes[-4] * 100
+        if closes[-4] != 0
+        else 0
+    )
+
     change_5 = (
         (last_close - closes[-6]) / closes[-6] * 100
         if closes[-6] != 0
@@ -217,6 +223,45 @@ def get_stock_trend(symbol):
     else:
         momentum_label = "⚪ ضعيف"
 
+    continuation_score = 0
+
+    if bias == "CALL":
+        if change_3 > 1:
+            continuation_score += 2
+        elif change_3 < -1:
+            continuation_score -= 2
+
+        if last_close > sma5:
+            continuation_score += 1
+        else:
+            continuation_score -= 1
+
+        if sma5 > sma10 > sma20:
+            continuation_score += 2
+
+    elif bias == "PUT":
+        if change_3 < -1:
+            continuation_score += 2
+        elif change_3 > 1:
+            continuation_score -= 2
+
+        if last_close < sma5:
+            continuation_score += 1
+        else:
+            continuation_score -= 1
+
+        if sma5 < sma10 < sma20:
+            continuation_score += 2
+
+    if continuation_score >= 4:
+        continuation_label = "🔥 مستمر بقوة"
+    elif continuation_score >= 2:
+        continuation_label = "🟢 مستمر"
+    elif continuation_score >= 0:
+        continuation_label = "🟡 متماسك"
+    else:
+        continuation_label = "⚠️ بدأ يضعف"
+
     return {
         "bias": bias,
         "label": label,
@@ -225,11 +270,14 @@ def get_stock_trend(symbol):
         "sma5": sma5,
         "sma10": sma10,
         "sma20": sma20,
+        "change_3": change_3,
         "change_5": change_5,
         "change_10": change_10,
         "volume_ratio": volume_ratio,
         "momentum_score": momentum_score,
         "momentum_label": momentum_label,
+        "continuation_score": continuation_score,
+        "continuation_label": continuation_label,
     }
 
 
@@ -308,7 +356,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "help":
         await query.message.reply_text(
             "ℹ️ البوت يبحث عن أفضل عقود من 5 إلى 30 يوم، "
-            "ويقيم العقد والسيولة والاتجاه والزخم.",
+            "ويقيم جودة العقد والسيولة والاتجاه والزخم "
+            "واستمرار الحركة.",
             reply_markup=main_menu(),
         )
 
@@ -392,6 +441,7 @@ def contract_score(delta, volume, oi, spread_pct, dte):
 def apply_market_score(base_score, side, trend):
     bias = trend["bias"]
     momentum = trend["momentum_score"]
+    continuation = trend["continuation_score"]
 
     adjustment = 0
 
@@ -400,23 +450,35 @@ def apply_market_score(base_score, side, trend):
 
     elif side == bias:
         if momentum >= 8:
-            adjustment = 6
+            adjustment += 5
         elif momentum >= 6:
-            adjustment = 5
+            adjustment += 4
         elif momentum >= 4:
-            adjustment = 3
+            adjustment += 2
         else:
-            adjustment = 1
+            adjustment += 1
+
+        if continuation >= 4:
+            adjustment += 2
+        elif continuation >= 2:
+            adjustment += 1
+        elif continuation < 0:
+            adjustment -= 3
 
     else:
         if momentum >= 8:
-            adjustment = -15
+            adjustment -= 12
         elif momentum >= 6:
-            adjustment = -12
+            adjustment -= 10
         elif momentum >= 4:
-            adjustment = -8
+            adjustment -= 7
         else:
-            adjustment = -4
+            adjustment -= 4
+
+        if continuation >= 4:
+            adjustment -= 3
+        elif continuation >= 2:
+            adjustment -= 2
 
     final_score = base_score + adjustment
 
@@ -577,7 +639,9 @@ def format_top_contracts(symbol, contracts, trend):
         f"📊 اتجاه السهم: {trend['label']}\n"
         f"⚡ الزخم: {trend['momentum_label']} "
         f"({trend['momentum_score']}/10)\n"
+        f"🚀 استمرار الحركة: {trend['continuation_label']}\n"
         f"💵 آخر إغلاق: ${trend['last_close']:.2f}\n"
+        f"📈 حركة 3 جلسات: {trend['change_3']:+.2f}%\n"
         f"📈 حركة 5 جلسات: {trend['change_5']:+.2f}%\n"
         f"📈 حركة 10 جلسات: {trend['change_10']:+.2f}%\n"
         f"━━━━━━━━━━━━━━\n\n"
@@ -587,21 +651,21 @@ def format_top_contracts(symbol, contracts, trend):
 
         if contract["market_adjustment"] > 0:
             market_text = (
-                f"+{contract['market_adjustment']} ✅ اتجاه وزخم داعم"
+                f"+{contract['market_adjustment']} ✅ حركة داعمة"
             )
 
         elif contract["market_adjustment"] < 0:
             market_text = (
-                f"{contract['market_adjustment']} ⚠️ عكس حركة السهم"
+                f"{contract['market_adjustment']} ⚠️ حركة غير داعمة"
             )
 
         else:
-            market_text = "0 ➖ بدون أفضلية اتجاه"
+            market_text = "0 ➖ بدون أفضلية"
 
         message += (
             f"{index}️⃣ {contract['side']} "
             f"{contract['strike']:g}\n"
-            f"⭐ التقييم النهائي: {contract['score']}/98 "
+            f"⭐ التقييم النهائي: {contract['score']}/100 "
             f"{rating(contract['score'])}\n"
             f"🧮 جودة العقد: {contract['base_score']}/100\n"
             f"🧭 تأثير السوق: {market_text}\n"
@@ -639,7 +703,7 @@ async def analyze_message(
 
             await update.message.reply_text(
                 f"🔎 جاري تحليل {symbol}...\n\n"
-                "📊 تحليل الاتجاه والزخم\n"
+                "📊 تحليل الاتجاه والزخم واستمرار الحركة\n"
                 "📅 فحص العقود 5 - 30 يوم\n"
                 "⏳ لحظة..."
             )
