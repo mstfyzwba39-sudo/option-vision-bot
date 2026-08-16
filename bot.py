@@ -19,6 +19,7 @@ MARKETDATA_TOKEN = os.environ.get("MARKETDATA_TOKEN")
 
 MAX_OPTION_ASK = 3.00
 MIN_TOP_SCORE = 80
+MIN_TOP_UOA = 3
 
 SCAN_SYMBOLS = [
     "TSLA", "NVDA", "AAPL", "AMD", "AMZN",
@@ -834,16 +835,20 @@ def scan_top10():
             trend = result["trend"]
             contract = result["contract"]
 
-            # قائمة أفضل اليوم لا تقبل الاتجاه المحايد
+            # لا نقبل الاتجاه المحايد
             if trend["bias"] == "NEUTRAL":
                 continue
 
-            # العقد لازم يكون بنفس اتجاه السهم
+            # العقد يجب أن يوافق اتجاه السهم
             if contract["side"] != trend["bias"]:
                 continue
 
-            # أقل تقييم مسموح في أفضل الفرص
+            # أقل تقييم مسموح
             if contract["score"] < MIN_TOP_SCORE:
+                continue
+
+            # أقل نشاط غير اعتيادي مسموح
+            if contract["uoa_score"] < MIN_TOP_UOA:
                 continue
 
             results.append(
@@ -882,16 +887,17 @@ def format_top10(results):
         return (
             "🏆 أفضل فرص اليوم\n\n"
             "❌ لم أجد فرصًا تحقق جميع الشروط حاليًا.\n\n"
-            "الشروط:\n"
             "✅ مع اتجاه السهم\n"
-            "✅ تقييم 80 فأعلى\n"
-            "✅ Ask لا يتجاوز $3"
+            "⭐ تقييم 80 فأعلى\n"
+            "🔥 النشاط 3/10 فأعلى\n"
+            "💰 Ask لا يتجاوز $3"
         )
 
     message = (
         f"🏆 أفضل {len(results)} فرص لليوم\n"
         f"💰 أقصى Ask للعقد: $3.00\n"
         f"⭐ الحد الأدنى للتقييم: {MIN_TOP_SCORE}/100\n"
+        f"🔥 الحد الأدنى للنشاط: {MIN_TOP_UOA}/10\n"
         f"🧭 فقط العقود الموافقة لاتجاه السهم\n"
         f"📅 DTE: 5 - 30 يوم\n"
         f"━━━━━━━━━━━━━━\n\n"
@@ -1028,6 +1034,7 @@ async def buttons(
             "🏆 جاري فحص 50 سهم واختيار أفضل الفرص...\n\n"
             "✅ مع اتجاه السهم فقط\n"
             "⭐ تقييم 80 فأعلى\n"
+            "🔥 النشاط 3/10 فأعلى\n"
             "💰 Ask ≤ $3\n"
             "⏳ قد يأخذ الفحص قليلًا من الوقت."
         )
@@ -1092,6 +1099,7 @@ async def buttons(
             "حتى 10 فرص فقط إذا حققت الشروط:\n\n"
             "✅ العقد مع اتجاه السهم\n"
             "⭐ تقييم 80 فأعلى\n"
+            "🔥 النشاط غير الاعتيادي 3/10 فأعلى\n"
             "💰 Ask لا يتجاوز $3\n\n"
             "🔎 ويمكنك البحث يدويًا عن أي سهم آخر.",
             reply_markup=main_menu(),
