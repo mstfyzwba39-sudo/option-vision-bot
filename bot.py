@@ -81,6 +81,10 @@ TOP10_CACHE = {
 PENDING_WATCHES = {}
 
 
+# =========================================================
+# ACCESS
+# =========================================================
+
 def _allowed(update):
     user = update.effective_user
     return user is not None and user.id in ALLOWED_USERS
@@ -99,6 +103,32 @@ async def deny_access(update):
             "⛔ غير مصرح لك باستخدام هذا البوت."
         )
 
+
+# =========================================================
+# EXPIRY DATE
+# =========================================================
+
+def get_market_date():
+    return datetime.now(
+        ZoneInfo("America/New_York")
+    ).date()
+
+
+def format_expiry_date(dte):
+    expiry = (
+        get_market_date()
+        + timedelta(days=int(dte))
+    )
+
+    return (
+        f"{expiry.day} "
+        f"{expiry.strftime('%b %Y')}"
+    )
+
+
+# =========================================================
+# MARKET HOURS
+# =========================================================
 
 def is_us_market_open():
     ny_now = datetime.now(
@@ -120,6 +150,10 @@ def is_us_market_open():
     )
 
 
+# =========================================================
+# MARKET DATA
+# =========================================================
+
 def get_headers():
     return {
         "Authorization": f"Bearer {MARKETDATA_TOKEN}"
@@ -132,7 +166,7 @@ def get_option_chain(symbol):
         f"v1/options/chain/{symbol}/"
     )
 
-    today = date.today()
+    today = get_market_date()
 
     from_date = (
         today + timedelta(days=5)
@@ -170,6 +204,10 @@ def get_option_chain(symbol):
 
     return data
 
+
+# =========================================================
+# STOCK TREND
+# =========================================================
 
 def get_stock_trend(symbol):
     url = (
@@ -421,6 +459,10 @@ def get_stock_trend(symbol):
     }
 
 
+# =========================================================
+# 15 MINUTE DATA
+# =========================================================
+
 def get_intraday_15m(symbol):
     url = (
         f"https://api.marketdata.app/"
@@ -486,6 +528,10 @@ def get_intraday_15m(symbol):
         "down_bars": down_bars,
     }
 
+
+# =========================================================
+# CONTRACT SCORE
+# =========================================================
 
 def contract_score(
     delta,
@@ -568,6 +614,10 @@ def normalize_contract_score(raw_score):
     )
 
 
+# =========================================================
+# ACTIVITY
+# =========================================================
+
 def unusual_activity_score(
     volume,
     oi
@@ -635,6 +685,10 @@ def unusual_activity_score(
     )
 
 
+# =========================================================
+# MARKET SCORE
+# =========================================================
+
 def apply_market_score(
     side,
     trend
@@ -682,6 +736,10 @@ def apply_market_score(
 
     return adjustment
 
+
+# =========================================================
+# DECISION
+# =========================================================
 
 def decision_status(
     contract,
@@ -809,6 +867,10 @@ def effective_decision(
     return decision
 
 
+# =========================================================
+# CONTRACT FILTER
+# =========================================================
+
 def get_top_contracts(
     data,
     trend
@@ -854,6 +916,12 @@ def get_top_contracts(
 
             dte = int(
                 data["dte"][i]
+            )
+
+            expiry_date = (
+                format_expiry_date(
+                    dte
+                )
             )
 
             bid = data["bid"][i]
@@ -973,6 +1041,7 @@ def get_top_contracts(
                 "side": side,
                 "strike": strike,
                 "dte": dte,
+                "expiry_date": expiry_date,
                 "bid": bid,
                 "ask": ask,
                 "mid": mid,
@@ -1050,6 +1119,10 @@ def analyze_symbol(symbol):
     }
 
 
+# =========================================================
+# WATCH
+# =========================================================
+
 def watch_key(
     chat_id,
     symbol
@@ -1113,10 +1186,12 @@ def add_pending_watch(
         "side": contract["side"],
         "strike": contract["strike"],
         "dte": contract["dte"],
-        "option_symbol": contract[
-            "option_symbol"
-        ],
-        "original_ask": contract["ask"],
+        "expiry_date":
+            contract["expiry_date"],
+        "option_symbol":
+            contract["option_symbol"],
+        "original_ask":
+            contract["ask"],
         "created_at": now,
         "last_checked_at": now,
     }
@@ -1226,6 +1301,10 @@ def check_intraday_confirmation(
     )
 
 
+# =========================================================
+# MONITOR
+# =========================================================
+
 async def monitor_pending(
     application
 ):
@@ -1263,7 +1342,9 @@ async def monitor_pending(
                 symbol = watch["symbol"]
                 side = watch["side"]
                 strike = watch["strike"]
-                dte = watch["dte"]
+                expiry_date = (
+                    watch["expiry_date"]
+                )
                 chat_id = watch["chat_id"]
 
                 trend = (
@@ -1285,7 +1366,7 @@ async def monitor_pending(
                             f"{symbol} "
                             f"{side} "
                             f"{strike:g} | "
-                            f"{dte}D\n"
+                            f"{expiry_date}\n"
                             "الاتجاه لم يعد داعمًا."
                         )
                     )
@@ -1324,7 +1405,7 @@ async def monitor_pending(
                             f"{symbol} "
                             f"{side} "
                             f"{strike:g} | "
-                            f"{dte}D\n"
+                            f"{expiry_date}\n"
                             f"💡 {reason}"
                         )
                     )
@@ -1361,7 +1442,7 @@ async def monitor_pending(
                             f"{symbol} "
                             f"{side} "
                             f"{strike:g} | "
-                            f"{dte}D\n"
+                            f"{expiry_date}\n"
                             f"💵 Ask "
                             f"${ask_now:.2f}"
                         )
@@ -1381,7 +1462,7 @@ async def monitor_pending(
                         f"{symbol} "
                         f"{side} "
                         f"{strike:g} | "
-                        f"{dte}D\n"
+                        f"{expiry_date}\n"
                         f"💵 Ask "
                         f"${ask_now:.2f}\n"
                         f"📊 Volume "
@@ -1408,6 +1489,10 @@ async def monitor_pending(
             WATCH_LOOP_SECONDS
         )
 
+
+# =========================================================
+# TOP 10
+# =========================================================
 
 def scan_top10():
     now = time.time()
@@ -1512,6 +1597,10 @@ def scan_top10():
     return top10
 
 
+# =========================================================
+# MENU
+# =========================================================
+
 def main_menu():
     keyboard = [
         [
@@ -1551,6 +1640,10 @@ def main_menu():
     )
 
 
+# =========================================================
+# FORMAT TOP 10
+# =========================================================
+
 def format_top10(
     results
 ):
@@ -1583,7 +1676,7 @@ def format_top10(
             f"{item['symbol']} "
             f"{contract['side']} "
             f"{contract['strike']:g} | "
-            f"{contract['dte']}D\n"
+            f"{contract['expiry_date']}\n"
             f"{decision['label']}\n"
             f"⭐ تقييم "
             f"{contract['score']}/100 | "
@@ -1598,6 +1691,10 @@ def format_top10(
 
     return message
 
+
+# =========================================================
+# FORMAT CONTRACTS
+# =========================================================
 
 def format_top_contracts(
     symbol,
@@ -1665,7 +1762,7 @@ def format_top_contracts(
             f"{symbol} "
             f"{contract['side']} "
             f"{contract['strike']:g} | "
-            f"{contract['dte']}D\n"
+            f"{contract['expiry_date']}\n"
             f"{decision['label']}\n"
             f"⭐ تقييم "
             f"{contract['score']}/100 | "
@@ -1709,7 +1806,7 @@ def format_watch_added(
         f"{symbol} "
         f"{contract['side']} "
         f"{contract['strike']:g} | "
-        f"{contract['dte']}D\n"
+        f"{contract['expiry_date']}\n"
         f"⭐ تقييم "
         f"{contract['score']}/100 | "
         f"🔥 نشاط "
@@ -1722,6 +1819,10 @@ def format_watch_added(
         "أثناء السوق"
     )
 
+
+# =========================================================
+# START
+# =========================================================
 
 async def start(
     update: Update,
@@ -1738,6 +1839,10 @@ async def start(
         reply_markup=main_menu()
     )
 
+
+# =========================================================
+# BUTTONS
+# =========================================================
 
 async def buttons(
     update: Update,
@@ -1819,7 +1924,7 @@ async def buttons(
                         f"• {symbol} "
                         f"{contract['side']} "
                         f"{contract['strike']:g} | "
-                        f"{contract['dte']}D\n"
+                        f"{contract['expiry_date']}\n"
                         f"  {decision['label']}"
                     )
 
@@ -1907,6 +2012,10 @@ async def buttons(
             reply_markup=main_menu()
         )
 
+
+# =========================================================
+# TEXT
+# =========================================================
 
 async def analyze_message(
     update: Update,
@@ -2073,12 +2182,18 @@ async def analyze_message(
                 )
             )
 
+            expiry_date = (
+                format_expiry_date(
+                    dte
+                )
+            )
+
             await update.message.reply_text(
                 f"📊 تحليل العقد\n\n"
                 f"السهم: {symbol}\n"
                 f"الاتجاه: {direction}\n"
                 f"Strike: {strike}\n"
-                f"DTE: {dte}\n"
+                f"الانتهاء: {expiry_date}\n"
                 f"Delta: {delta}\n"
                 f"Volume: {volume:,}\n"
                 f"OI: {oi:,}\n"
@@ -2170,6 +2285,10 @@ async def analyze_message(
         )
 
 
+# =========================================================
+# START WATCHER
+# =========================================================
+
 async def post_init(
     application
 ):
@@ -2183,6 +2302,10 @@ async def post_init(
         "AUTO WATCHER STARTED"
     )
 
+
+# =========================================================
+# MAIN
+# =========================================================
 
 def main():
     if not TOKEN:
