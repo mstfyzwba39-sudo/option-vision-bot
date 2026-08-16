@@ -578,6 +578,66 @@ def apply_market_score(
     return adjustment
 
 
+def decision_status(
+    contract,
+    trend
+):
+    bias = trend["bias"]
+    momentum = trend["momentum_score"]
+    continuation = trend["continuation_score"]
+
+    if bias == "NEUTRAL":
+        return {
+            "label": "🟡 انتظار تأكيد",
+            "reason": "الاتجاه غير محسوم",
+            "rank": 1
+        }
+
+    if contract["side"] != bias:
+        return {
+            "label": "🔴 إلغاء / خروج",
+            "reason": "العقد عكس اتجاه السهم",
+            "rank": 0
+        }
+
+    if continuation < 0:
+        return {
+            "label": "🔴 إلغاء / خروج",
+            "reason": "استمرار الحركة بدأ يضعف",
+            "rank": 0
+        }
+
+    if (
+        momentum >= 6
+        and continuation >= 2
+        and contract["base_score"] >= 78
+        and contract["uoa_score"] >= 3
+    ):
+        return {
+            "label": "🟢 تأكيد دخول",
+            "reason": "الاتجاه والزخم والاستمرار متوافقون",
+            "rank": 2
+        }
+
+    if momentum < 4:
+        reason = "الزخم يحتاج قوة أكبر"
+
+    elif continuation < 2:
+        reason = "ننتظر تأكيد استمرار الحركة"
+
+    elif contract["uoa_score"] < 3:
+        reason = "النشاط على العقد ما زال ضعيفًا"
+
+    else:
+        reason = "الفرصة جيدة لكن تحتاج تأكيد إضافي"
+
+    return {
+        "label": "🟡 انتظار تأكيد",
+        "reason": reason,
+        "rank": 1
+    }
+
+
 def rating(score):
 
     if score >= 95:
@@ -734,28 +794,35 @@ def get_top_contracts(
                 )
             )
 
+            contract = {
+                "option_symbol": option_symbol,
+                "side": side,
+                "strike": strike,
+                "dte": dte,
+                "bid": bid,
+                "ask": ask,
+                "mid": mid,
+                "volume": volume,
+                "oi": oi,
+                "delta": delta,
+                "spread_pct": spread_pct,
+                "volume_oi_ratio": volume_oi_ratio,
+                "base_score": base_score,
+                "uoa_score": uoa_score,
+                "uoa_label": uoa_label,
+                "uoa_adjustment": uoa_adjustment,
+                "market_adjustment": market_adjustment,
+                "internal_score": internal_score,
+                "score": display_score,
+            }
+
+            contract["decision"] = decision_status(
+                contract,
+                trend
+            )
+
             contracts.append(
-                {
-                    "option_symbol": option_symbol,
-                    "side": side,
-                    "strike": strike,
-                    "dte": dte,
-                    "bid": bid,
-                    "ask": ask,
-                    "mid": mid,
-                    "volume": volume,
-                    "oi": oi,
-                    "delta": delta,
-                    "spread_pct": spread_pct,
-                    "volume_oi_ratio": volume_oi_ratio,
-                    "base_score": base_score,
-                    "uoa_score": uoa_score,
-                    "uoa_label": uoa_label,
-                    "uoa_adjustment": uoa_adjustment,
-                    "market_adjustment": market_adjustment,
-                    "internal_score": internal_score,
-                    "score": display_score,
-                }
+                contract
             )
 
         except (
@@ -833,23 +900,46 @@ def scan_top10():
                 continue
 
             trend = result["trend"]
-            contract = result["contract"]
 
-            # لا نقبل الاتجاه المحايد
             if trend["bias"] == "NEUTRAL":
                 continue
 
-            # العقد يجب أن يوافق اتجاه السهم
-            if contract["side"] != trend["bias"]:
+            matching_contracts = [
+                contract
+                for contract in result["contracts"]
+                if contract["side"] == trend["bias"]
+            ]
+
+            if not matching_contracts:
                 continue
 
-            # أقل تقييم مسموح
+            matching_contracts.sort(
+                key=lambda x: (
+                    -x["internal_score"],
+                    -x["uoa_score"],
+                    x["spread_pct"]
+                )
+            )
+
+            contract = matching_contracts[0]
+
             if contract["score"] < MIN_TOP_SCORE:
                 continue
 
-            # أقل نشاط غير اعتيادي مسموح
             if contract["uoa_score"] < MIN_TOP_UOA:
                 continue
+
+            decision = decision_status(
+                contract,
+                trend
+            )
+
+            if decision["rank"] == 0:
+                continue
+
+            result["contract"] = contract
+            result["internal_score"] = contract["internal_score"]
+            result["decision"] = decision
 
             results.append(
                 result
@@ -865,6 +955,7 @@ def scan_top10():
 
     results.sort(
         key=lambda x: (
+            -x["decision"]["rank"],
             -x["internal_score"],
             -x["trend"]["momentum_score"],
             -x["contract"]["uoa_score"],
@@ -893,8 +984,22 @@ def format_top10(results):
             "💰 Ask لا يتجاوز $3"
         )
 
+    confirmed = sum(
+        1
+        for item in results
+        if item["decision"]["rank"] == 2
+    )
+
+    waiting = sum(
+        1
+        for item in results
+        if item["decision"]["rank"] == 1
+    )
+
     message = (
         f"🏆 أفضل {len(results)} فرص لليوم\n"
+        f"🟢 تأكيد دخول: {confirmed}\n"
+        f"🟡 انتظار تأكيد: {waiting}\n"
         f"💰 أقصى Ask للعقد: $3.00\n"
         f"⭐ الحد الأدنى للتقييم: {MIN_TOP_SCORE}/100\n"
         f"🔥 الحد الأدنى للنشاط: {MIN_TOP_UOA}/10\n"
@@ -911,11 +1016,14 @@ def format_top10(results):
         symbol = item["symbol"]
         trend = item["trend"]
         contract = item["contract"]
+        decision = item["decision"]
 
         message += (
             f"{index}️⃣ {symbol} "
             f"{contract['side']} "
             f"{contract['strike']:g}\n"
+            f"🎯 القرار: {decision['label']}\n"
+            f"💡 {decision['reason']}\n"
             f"⭐ {contract['score']}/100 "
             f"{rating(contract['score'])}\n"
             f"📊 {trend['label']} | "
@@ -985,9 +1093,13 @@ def format_top_contracts(
         else:
             market_text = "0 ➖ بدون أفضلية"
 
+        decision = contract["decision"]
+
         message += (
             f"{index}️⃣ {contract['side']} "
             f"{contract['strike']:g}\n"
+            f"🎯 القرار: {decision['label']}\n"
+            f"💡 السبب: {decision['reason']}\n"
             f"⭐ التقييم النهائي: "
             f"{contract['score']}/100 "
             f"{rating(contract['score'])}\n"
@@ -1036,6 +1148,7 @@ async def buttons(
             "⭐ تقييم 80 فأعلى\n"
             "🔥 النشاط 3/10 فأعلى\n"
             "💰 Ask ≤ $3\n"
+            "🎯 فحص تأكيد الدخول أو الانتظار\n"
             "⏳ قد يأخذ الفحص قليلًا من الوقت."
         )
 
@@ -1095,13 +1208,17 @@ async def buttons(
     elif query.data == "help":
 
         await query.message.reply_text(
-            "ℹ️ أفضل فرص اليوم تمسح 50 سهمًا وتعرض "
-            "حتى 10 فرص فقط إذا حققت الشروط:\n\n"
-            "✅ العقد مع اتجاه السهم\n"
+            "ℹ️ البوت يفلتر العقود ويحدد حالة الفرصة:\n\n"
+            "🟢 تأكيد دخول = شروط البوت متوافقة بقوة\n"
+            "🟡 انتظار تأكيد = الفرصة جيدة لكن تحتاج تأكيد\n"
+            "🔴 إلغاء / خروج = الاتجاه أو الاستمرار غير داعم\n\n"
+            "🏆 أفضل فرص اليوم:\n"
+            "✅ مع اتجاه السهم\n"
             "⭐ تقييم 80 فأعلى\n"
-            "🔥 النشاط غير الاعتيادي 3/10 فأعلى\n"
+            "🔥 نشاط 3/10 فأعلى\n"
             "💰 Ask لا يتجاوز $3\n\n"
-            "🔎 ويمكنك البحث يدويًا عن أي سهم آخر.",
+            "ملاحظة: تأكيد الدخول هو تأكيد لشروط البوت "
+            "وليس ضمانًا لنجاح الصفقة.",
             reply_markup=main_menu(),
         )
 
@@ -1135,6 +1252,7 @@ async def analyze_message(
             await update.message.reply_text(
                 f"🔎 جاري تحليل {symbol}...\n\n"
                 "💰 البحث فقط عن عقود Ask ≤ $3\n"
+                "🎯 تحديد دخول / انتظار / إلغاء\n"
                 "⏳ لحظة..."
             )
 
