@@ -29,12 +29,14 @@ def run_web():
     web.run(host="0.0.0.0", port=port)
 
 
-def get_option_chain(symbol):
-    url = f"https://api.marketdata.app/v1/options/chain/{symbol}/"
-
-    headers = {
+def get_headers():
+    return {
         "Authorization": f"Bearer {MARKETDATA_TOKEN}"
     }
+
+
+def get_option_chain(symbol):
+    url = f"https://api.marketdata.app/v1/options/chain/{symbol}/"
 
     today = date.today()
     from_date = (today + timedelta(days=5)).isoformat()
@@ -47,7 +49,7 @@ def get_option_chain(symbol):
 
     response = requests.get(
         url,
-        headers=headers,
+        headers=get_headers(),
         params=params,
         timeout=20
     )
@@ -62,6 +64,112 @@ def get_option_chain(symbol):
         )
 
     return data
+
+
+def get_stock_trend(symbol):
+    url = f"https://api.marketdata.app/v1/stocks/candles/D/{symbol}/"
+
+    params = {
+        "countback": 30
+    }
+
+    response = requests.get(
+        url,
+        headers=get_headers(),
+        params=params,
+        timeout=20
+    )
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    if data.get("s") != "ok":
+        raise ValueError(
+            data.get("errmsg", "تعذر الحصول على حركة السهم.")
+        )
+
+    closes = data.get("c", [])
+    volumes = data.get("v", [])
+
+    if len(closes) < 20:
+        raise ValueError("لا توجد شموع كافية لتحليل الاتجاه.")
+
+    closes = [float(x) for x in closes]
+
+    last_close = closes[-1]
+
+    sma5 = sum(closes[-5:]) / 5
+    sma10 = sum(closes[-10:]) / 10
+    sma20 = sum(closes[-20:]) / 20
+
+    change_5 = (
+        (last_close - closes[-6]) / closes[-6] * 100
+        if closes[-6] != 0
+        else 0
+    )
+
+    if volumes and len(volumes) >= 20:
+        recent_volume = float(volumes[-1])
+        avg_volume20 = sum(
+            float(x) for x in volumes[-20:]
+        ) / 20
+
+        volume_ratio = (
+            recent_volume / avg_volume20
+            if avg_volume20 > 0
+            else 1
+        )
+    else:
+        volume_ratio = 1
+
+    bullish_points = 0
+    bearish_points = 0
+
+    if last_close > sma5:
+        bullish_points += 1
+    else:
+        bearish_points += 1
+
+    if sma5 > sma10:
+        bullish_points += 1
+    else:
+        bearish_points += 1
+
+    if sma10 > sma20:
+        bullish_points += 1
+    else:
+        bearish_points += 1
+
+    if change_5 > 1:
+        bullish_points += 1
+    elif change_5 < -1:
+        bearish_points += 1
+
+    if bullish_points >= 3 and bullish_points > bearish_points:
+        bias = "CALL"
+        label = "🟢 صاعد"
+        strength = bullish_points
+    elif bearish_points >= 3 and bearish_points > bullish_points:
+        bias = "PUT"
+        label = "🔴 هابط"
+        strength = bearish_points
+    else:
+        bias = "NEUTRAL"
+        label = "🟡 محايد"
+        strength = max(bullish_points, bearish_points)
+
+    return {
+        "bias": bias,
+        "label": label,
+        "strength": strength,
+        "last_close": last_close,
+        "sma5": sma5,
+        "sma10": sma10,
+        "sma20": sma20,
+        "change_5": change_5,
+        "volume_ratio": volume_ratio,
+    }
 
 
 def main_menu():
@@ -138,12 +246,9 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "help":
         await query.message.reply_text(
-            "ℹ️ البوت يقدر على:\n\n"
-            "🔎 البحث عن أفضل العقود\n"
-            "📊 تقييم عقد أوبشن\n"
-            "🎯 تقييم فرصة\n\n"
-            "البحث يعطيك أفضل 5 عقود بانتهاء من 5 إلى 30 يوم "
-            "حسب السيولة والـ Delta والـ Spread ونسبة Volume/OI.",
+            "ℹ️ البوت يبحث عن أفضل عقود من 5 إلى 30 يوم، "
+            "ويقيم السيولة والـ Delta والـ Spread وVolume/OI، "
+            "ثم يضيف اتجاه السهم إلى التقييم.",
             reply_markup=main_menu(),
         )
 
@@ -152,7 +257,6 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     score = 0
     delta_abs = abs(delta)
 
-    # Delta - الحد الأقصى 25
     if 0.42 <= delta_abs <= 0.58:
         score += 25
     elif 0.35 <= delta_abs <= 0.65:
@@ -162,7 +266,6 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     else:
         score += 5
 
-    # Volume - الحد الأقصى 20
     if volume >= 10000:
         score += 20
     elif volume >= 5000:
@@ -176,7 +279,6 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     else:
         score += 3
 
-    # Open Interest - الحد الأقصى 15
     if oi >= 10000:
         score += 15
     elif oi >= 5000:
@@ -190,7 +292,6 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     else:
         score += 2
 
-    # Spread - الحد الأقصى 20
     if spread_pct <= 2:
         score += 20
     elif spread_pct <= 3:
@@ -202,7 +303,6 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     elif spread_pct <= 12:
         score += 4
 
-    # DTE - الحد الأقصى 10
     if 7 <= dte <= 14:
         score += 10
     elif 15 <= dte <= 21:
@@ -212,7 +312,6 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     elif 22 <= dte <= 30:
         score += 6
 
-    # Volume / OI - الحد الأقصى 10
     if oi > 0:
         volume_oi_ratio = volume / oi
 
@@ -230,6 +329,29 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     return min(score, 100)
 
 
+def apply_trend_score(base_score, side, trend):
+    bias = trend["bias"]
+
+    if bias == "NEUTRAL":
+        adjustment = 0
+
+    elif side == bias:
+        if trend["strength"] >= 4:
+            adjustment = 5
+        else:
+            adjustment = 3
+
+    else:
+        if trend["strength"] >= 4:
+            adjustment = -12
+        else:
+            adjustment = -7
+
+    final_score = base_score + adjustment
+
+    return max(0, min(final_score, 100)), adjustment
+
+
 def rating(score):
     if score >= 92:
         return "🔥 استثنائي"
@@ -245,7 +367,7 @@ def rating(score):
         return "🔴 ضعيف"
 
 
-def get_top_contracts(data):
+def get_top_contracts(data, trend):
     contracts = []
 
     fields = [
@@ -280,7 +402,6 @@ def get_top_contracts(data):
             bid = data["bid"][i]
             ask = data["ask"][i]
             mid = data["mid"][i]
-
             volume = data["volume"][i]
             oi = data["openInterest"][i]
             delta = data["delta"][i]
@@ -324,12 +445,18 @@ def get_top_contracts(data):
 
             volume_oi_ratio = volume / oi if oi > 0 else 0
 
-            score = contract_score(
+            base_score = contract_score(
                 delta,
                 volume,
                 oi,
                 spread_pct,
                 dte
+            )
+
+            final_score, trend_adjustment = apply_trend_score(
+                base_score,
+                side,
+                trend
             )
 
             contracts.append(
@@ -346,7 +473,9 @@ def get_top_contracts(data):
                     "delta": delta,
                     "spread_pct": spread_pct,
                     "volume_oi_ratio": volume_oi_ratio,
-                    "score": score,
+                    "base_score": base_score,
+                    "trend_adjustment": trend_adjustment,
+                    "score": final_score,
                 }
             )
 
@@ -365,32 +494,48 @@ def get_top_contracts(data):
     return contracts[:5]
 
 
-def format_top_contracts(symbol, contracts):
+def format_top_contracts(symbol, contracts, trend):
     if not contracts:
         return (
             f"🔎 نتائج البحث عن {symbol}\n\n"
-            "❌ لم أجد عقودًا مناسبة من 5 إلى 30 يوم "
-            "حسب الفلاتر الحالية."
+            "❌ لم أجد عقودًا مناسبة حسب الفلاتر الحالية."
         )
 
     message = (
         f"🔎 أفضل 5 عقود لـ {symbol}\n"
         f"📅 نطاق الانتهاء: 5 - 30 يوم\n"
+        f"📊 اتجاه السهم: {trend['label']}\n"
+        f"💵 آخر إغلاق: ${trend['last_close']:.2f}\n"
+        f"📈 حركة 5 جلسات: {trend['change_5']:+.2f}%\n"
         f"━━━━━━━━━━━━━━\n\n"
     )
 
     for index, contract in enumerate(contracts, start=1):
+        if contract["trend_adjustment"] > 0:
+            trend_text = (
+                f"+{contract['trend_adjustment']} ✅ مع الاتجاه"
+            )
+        elif contract["trend_adjustment"] < 0:
+            trend_text = (
+                f"{contract['trend_adjustment']} ⚠️ عكس الاتجاه"
+            )
+        else:
+            trend_text = "0 ➖ اتجاه محايد"
+
         message += (
             f"{index}️⃣ {contract['side']} "
             f"{contract['strike']:g}\n"
-            f"⭐ التقييم: {contract['score']}/100 "
+            f"⭐ التقييم النهائي: {contract['score']}/100 "
             f"{rating(contract['score'])}\n"
+            f"🧮 تقييم العقد: {contract['base_score']}/100\n"
+            f"🧭 تأثير الاتجاه: {trend_text}\n"
             f"📅 DTE: {contract['dte']}\n"
             f"📈 Delta: {contract['delta']:.2f}\n"
             f"💰 Mid: ${contract['mid']:.2f}\n"
             f"📊 Volume: {contract['volume']:,}\n"
             f"📚 OI: {contract['oi']:,}\n"
-            f"⚡ Volume/OI: {contract['volume_oi_ratio']:.2f}x\n"
+            f"⚡ Volume/OI: "
+            f"{contract['volume_oi_ratio']:.2f}x\n"
             f"↔️ Spread: {contract['spread_pct']:.1f}%\n"
             f"━━━━━━━━━━━━━━\n"
         )
@@ -417,14 +562,25 @@ async def analyze_message(
                 return
 
             await update.message.reply_text(
-                f"🔎 جاري البحث عن أفضل عقود {symbol}...\n\n"
-                "📅 النطاق: 5 - 30 يوم\n"
+                f"🔎 جاري تحليل {symbol}...\n\n"
+                "📊 تحليل الاتجاه\n"
+                "📅 فحص العقود 5 - 30 يوم\n"
                 "⏳ لحظة..."
             )
 
+            trend = get_stock_trend(symbol)
             data = get_option_chain(symbol)
-            contracts = get_top_contracts(data)
-            result = format_top_contracts(symbol, contracts)
+
+            contracts = get_top_contracts(
+                data,
+                trend
+            )
+
+            result = format_top_contracts(
+                symbol,
+                contracts,
+                trend
+            )
 
             await update.message.reply_text(
                 result,
@@ -483,13 +639,13 @@ async def analyze_message(
             direction = parts[1].upper()
             momentum = float(parts[2])
             volume = float(parts[3])
-            trend = float(parts[4])
+            trend_score = float(parts[4])
 
             score = round(
                 (
                     momentum * 0.4
                     + volume * 0.3
-                    + trend * 0.3
+                    + trend_score * 0.3
                 ) * 10
             )
 
@@ -501,7 +657,7 @@ async def analyze_message(
                 f"الاتجاه: {direction}\n\n"
                 f"الزخم: {momentum}/10\n"
                 f"قوة التداول: {volume}/10\n"
-                f"الاتجاه الفني: {trend}/10\n\n"
+                f"الاتجاه الفني: {trend_score}/10\n\n"
                 f"⭐ النتيجة: {score}/100\n"
                 f"{rating(score)}",
                 reply_markup=main_menu(),
