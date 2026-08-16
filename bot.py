@@ -143,59 +143,104 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📊 تقييم عقد أوبشن\n"
             "🎯 تقييم فرصة\n\n"
             "البحث يعطيك أفضل 5 عقود بانتهاء من 5 إلى 30 يوم "
-            "حسب السيولة والـ Delta والـ DTE والـ Spread.",
+            "حسب السيولة والـ Delta والـ Spread ونسبة Volume/OI.",
             reply_markup=main_menu(),
         )
 
 
 def contract_score(delta, volume, oi, spread_pct, dte):
     score = 0
-
     delta_abs = abs(delta)
 
-    if 0.35 <= delta_abs <= 0.65:
+    # Delta - الحد الأقصى 25
+    if 0.42 <= delta_abs <= 0.58:
         score += 25
-    elif 0.25 <= delta_abs <= 0.75:
+    elif 0.35 <= delta_abs <= 0.65:
+        score += 20
+    elif 0.30 <= delta_abs <= 0.70:
+        score += 12
+    else:
+        score += 5
+
+    # Volume - الحد الأقصى 20
+    if volume >= 10000:
+        score += 20
+    elif volume >= 5000:
+        score += 18
+    elif volume >= 2000:
         score += 15
-    else:
-        score += 5
-
-    if volume >= 1000:
-        score += 20
+    elif volume >= 1000:
+        score += 12
     elif volume >= 300:
-        score += 12
+        score += 7
     else:
-        score += 5
+        score += 3
 
-    if oi >= 2000:
-        score += 20
-    elif oi >= 500:
-        score += 12
-    else:
-        score += 5
-
-    if spread_pct <= 5:
-        score += 20
-    elif spread_pct <= 10:
+    # Open Interest - الحد الأقصى 15
+    if oi >= 10000:
+        score += 15
+    elif oi >= 5000:
+        score += 13
+    elif oi >= 2000:
         score += 10
+    elif oi >= 1000:
+        score += 7
+    elif oi >= 500:
+        score += 4
     else:
         score += 2
 
-    if 5 <= dte <= 30:
-        score += 15
-    else:
-        score += 0
+    # Spread - الحد الأقصى 20
+    if spread_pct <= 2:
+        score += 20
+    elif spread_pct <= 3:
+        score += 17
+    elif spread_pct <= 5:
+        score += 13
+    elif spread_pct <= 8:
+        score += 8
+    elif spread_pct <= 12:
+        score += 4
+
+    # DTE - الحد الأقصى 10
+    if 7 <= dte <= 14:
+        score += 10
+    elif 15 <= dte <= 21:
+        score += 8
+    elif 5 <= dte <= 6:
+        score += 7
+    elif 22 <= dte <= 30:
+        score += 6
+
+    # Volume / OI - الحد الأقصى 10
+    if oi > 0:
+        volume_oi_ratio = volume / oi
+
+        if volume_oi_ratio >= 2:
+            score += 10
+        elif volume_oi_ratio >= 1:
+            score += 8
+        elif volume_oi_ratio >= 0.5:
+            score += 5
+        elif volume_oi_ratio >= 0.2:
+            score += 3
+        else:
+            score += 1
 
     return min(score, 100)
 
 
 def rating(score):
-    if score >= 85:
-        return "🔥 ممتاز جدًا"
-    elif score >= 70:
+    if score >= 92:
+        return "🔥 استثنائي"
+    elif score >= 85:
+        return "🟢 ممتاز جدًا"
+    elif score >= 75:
         return "🟢 قوي"
+    elif score >= 65:
+        return "🟡 جيد"
     elif score >= 55:
-        return "🟡 متوسط"
+        return "🟠 متوسط"
     else:
         return "🔴 ضعيف"
 
@@ -260,7 +305,7 @@ def get_top_contracts(data):
             if dte < 5 or dte > 30:
                 continue
 
-            if mid <= 0 or ask <= 0:
+            if mid <= 0 or ask <= 0 or bid < 0:
                 continue
 
             spread_pct = ((ask - bid) / mid) * 100
@@ -271,11 +316,13 @@ def get_top_contracts(data):
             if oi < 200:
                 continue
 
-            if abs(delta) < 0.20 or abs(delta) > 0.80:
+            if abs(delta) < 0.25 or abs(delta) > 0.75:
                 continue
 
-            if spread_pct > 15:
+            if spread_pct > 12:
                 continue
+
+            volume_oi_ratio = volume / oi if oi > 0 else 0
 
             score = contract_score(
                 delta,
@@ -298,6 +345,7 @@ def get_top_contracts(data):
                     "oi": oi,
                     "delta": delta,
                     "spread_pct": spread_pct,
+                    "volume_oi_ratio": volume_oi_ratio,
                     "score": score,
                 }
             )
@@ -307,11 +355,11 @@ def get_top_contracts(data):
 
     contracts.sort(
         key=lambda x: (
-            x["score"],
-            x["volume"],
-            x["oi"]
-        ),
-        reverse=True
+            -x["score"],
+            x["spread_pct"],
+            -x["volume"],
+            -x["oi"]
+        )
     )
 
     return contracts[:5]
@@ -342,6 +390,7 @@ def format_top_contracts(symbol, contracts):
             f"💰 Mid: ${contract['mid']:.2f}\n"
             f"📊 Volume: {contract['volume']:,}\n"
             f"📚 OI: {contract['oi']:,}\n"
+            f"⚡ Volume/OI: {contract['volume_oi_ratio']:.2f}x\n"
             f"↔️ Spread: {contract['spread_pct']:.1f}%\n"
             f"━━━━━━━━━━━━━━\n"
         )
