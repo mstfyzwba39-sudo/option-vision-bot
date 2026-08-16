@@ -356,8 +356,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "help":
         await query.message.reply_text(
             "ℹ️ البوت يبحث عن أفضل عقود من 5 إلى 30 يوم، "
-            "ويقيم جودة العقد والسيولة والاتجاه والزخم "
-            "واستمرار الحركة.",
+            "ويقيم جودة العقد والاتجاه والزخم واستمرار الحركة، "
+            "ويضيف تقديرًا للنشاط غير الاعتيادي.",
             reply_markup=main_menu(),
         )
 
@@ -421,21 +421,42 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     elif 22 <= dte <= 30:
         score += 6
 
-    if oi > 0:
-        volume_oi_ratio = volume / oi
+    return min(score, 90)
 
-        if volume_oi_ratio >= 2:
-            score += 10
-        elif volume_oi_ratio >= 1:
-            score += 8
-        elif volume_oi_ratio >= 0.5:
-            score += 5
-        elif volume_oi_ratio >= 0.2:
-            score += 3
-        else:
-            score += 1
 
-    return min(score, 100)
+def normalize_contract_score(raw_score):
+    return round((raw_score / 90) * 100)
+
+
+def unusual_activity_score(volume, oi):
+    if oi <= 0:
+        return 0, 0, "⚪ غير متاح"
+
+    ratio = volume / oi
+
+    if ratio >= 5:
+        score = 10
+        label = "🔥 استثنائي جدًا"
+    elif ratio >= 3:
+        score = 9
+        label = "🔥 مرتفع جدًا"
+    elif ratio >= 2:
+        score = 8
+        label = "🟢 مرتفع"
+    elif ratio >= 1.5:
+        score = 7
+        label = "🟢 قوي"
+    elif ratio >= 1:
+        score = 5
+        label = "🟡 ملحوظ"
+    elif ratio >= 0.5:
+        score = 3
+        label = "⚪ طبيعي"
+    else:
+        score = 1
+        label = "⚪ منخفض"
+
+    return score, ratio, label
 
 
 def apply_market_score(base_score, side, trend):
@@ -482,7 +503,7 @@ def apply_market_score(base_score, side, trend):
 
     final_score = base_score + adjustment
 
-    return max(0, min(final_score, 98)), adjustment
+    return final_score, adjustment
 
 
 def rating(score):
@@ -575,9 +596,7 @@ def get_top_contracts(data, trend):
             if spread_pct > 12:
                 continue
 
-            volume_oi_ratio = volume / oi if oi > 0 else 0
-
-            base_score = contract_score(
+            raw_contract_score = contract_score(
                 delta,
                 volume,
                 oi,
@@ -585,10 +604,33 @@ def get_top_contracts(data, trend):
                 dte
             )
 
-            final_score, market_adjustment = apply_market_score(
+            base_score = normalize_contract_score(
+                raw_contract_score
+            )
+
+            uoa_score, volume_oi_ratio, uoa_label = (
+                unusual_activity_score(
+                    volume,
+                    oi
+                )
+            )
+
+            market_score, market_adjustment = apply_market_score(
                 base_score,
                 side,
                 trend
+            )
+
+            uoa_adjustment = round(uoa_score * 0.6)
+
+            final_score = (
+                market_score
+                + uoa_adjustment
+            )
+
+            final_score = max(
+                0,
+                min(final_score, 98)
             )
 
             contracts.append(
@@ -606,6 +648,9 @@ def get_top_contracts(data, trend):
                     "spread_pct": spread_pct,
                     "volume_oi_ratio": volume_oi_ratio,
                     "base_score": base_score,
+                    "uoa_score": uoa_score,
+                    "uoa_label": uoa_label,
+                    "uoa_adjustment": uoa_adjustment,
                     "market_adjustment": market_adjustment,
                     "score": final_score,
                 }
@@ -617,6 +662,7 @@ def get_top_contracts(data, trend):
     contracts.sort(
         key=lambda x: (
             -x["score"],
+            -x["uoa_score"],
             x["spread_pct"],
             -x["volume"],
             -x["oi"]
@@ -653,12 +699,10 @@ def format_top_contracts(symbol, contracts, trend):
             market_text = (
                 f"+{contract['market_adjustment']} ✅ حركة داعمة"
             )
-
         elif contract["market_adjustment"] < 0:
             market_text = (
                 f"{contract['market_adjustment']} ⚠️ حركة غير داعمة"
             )
-
         else:
             market_text = "0 ➖ بدون أفضلية"
 
@@ -669,6 +713,11 @@ def format_top_contracts(symbol, contracts, trend):
             f"{rating(contract['score'])}\n"
             f"🧮 جودة العقد: {contract['base_score']}/100\n"
             f"🧭 تأثير السوق: {market_text}\n"
+            f"🔥 النشاط غير الاعتيادي: "
+            f"{contract['uoa_label']} "
+            f"({contract['uoa_score']}/10)\n"
+            f"➕ تأثير النشاط: "
+            f"+{contract['uoa_adjustment']}\n"
             f"📅 DTE: {contract['dte']}\n"
             f"📈 Delta: {contract['delta']:.2f}\n"
             f"💰 Mid: ${contract['mid']:.2f}\n"
@@ -704,6 +753,7 @@ async def analyze_message(
             await update.message.reply_text(
                 f"🔎 جاري تحليل {symbol}...\n\n"
                 "📊 تحليل الاتجاه والزخم واستمرار الحركة\n"
+                "🔥 فحص النشاط غير الاعتيادي\n"
                 "📅 فحص العقود 5 - 30 يوم\n"
                 "⏳ لحظة..."
             )
@@ -744,12 +794,16 @@ async def analyze_message(
             oi = int(parts[6])
             spread = float(parts[7])
 
-            score = contract_score(
+            raw_score = contract_score(
                 delta,
                 volume,
                 oi,
                 spread,
                 dte
+            )
+
+            score = normalize_contract_score(
+                raw_score
             )
 
             await update.message.reply_text(
@@ -762,7 +816,7 @@ async def analyze_message(
                 f"Volume: {volume:,}\n"
                 f"Open Interest: {oi:,}\n"
                 f"Spread: {spread}%\n\n"
-                f"⭐ النتيجة: {score}/100\n"
+                f"⭐ جودة العقد: {score}/100\n"
                 f"{rating(score)}",
                 reply_markup=main_menu(),
             )
