@@ -1,9 +1,15 @@
 import os
 import threading
 from flask import Flask
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from deep_translator import GoogleTranslator
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
 TOKEN = os.environ.get("BOT_TOKEN")
 
@@ -11,35 +17,179 @@ web = Flask(__name__)
 
 @web.route("/")
 def home():
-    return "Bot is running", 200
+    return "Option Vision Bot is running", 200
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     web.run(host="0.0.0.0", port=port)
 
+def main_menu():
+    keyboard = [
+        [InlineKeyboardButton("📊 تقييم عقد أوبشن", callback_data="contract")],
+        [InlineKeyboardButton("🎯 تقييم فرصة", callback_data="opportunity")],
+        [InlineKeyboardButton("ℹ️ طريقة الاستخدام", callback_data="help")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 أهلاً بك في بوت تحليل عقود الأوبشن\n\n"
-        "أرسل النص أو الخبر بالعربي وسأترجمه لك إلى الإنجليزية 🇺🇸"
+        "🤖 بوت تحليل واختيار عقود الأوبشن\n\n"
+        "اختر الخدمة المطلوبة:",
+        reply_markup=main_menu(),
     )
 
-async def translate_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
+async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    text = update.message.text
+    if query.data == "contract":
+        context.user_data["mode"] = "contract"
+        await query.message.reply_text(
+            "📊 أرسل بيانات العقد بهذا الترتيب:\n\n"
+            "SYMBOL CALL/PUT STRIKE DTE DELTA VOLUME OI SPREAD\n\n"
+            "مثال:\n"
+            "TSLA CALL 350 7 0.45 2500 8000 4"
+        )
+
+    elif query.data == "opportunity":
+        context.user_data["mode"] = "opportunity"
+        await query.message.reply_text(
+            "🎯 أرسل بيانات الفرصة بهذا الشكل:\n\n"
+            "SYMBOL DIRECTION MOMENTUM VOLUME TREND\n\n"
+            "مثال:\n"
+            "TSLA CALL 8 9 8"
+        )
+
+    elif query.data == "help":
+        await query.message.reply_text(
+            "البوت يقيم جودة العقد والفرصة ويعطيك نتيجة من 100.",
+            reply_markup=main_menu(),
+        )
+
+def contract_score(delta, volume, oi, spread, dte):
+    score = 0
+
+    if 0.35 <= delta <= 0.65:
+        score += 25
+    elif 0.25 <= delta <= 0.75:
+        score += 15
+    else:
+        score += 5
+
+    if volume >= 1000:
+        score += 20
+    elif volume >= 300:
+        score += 12
+    else:
+        score += 5
+
+    if oi >= 2000:
+        score += 20
+    elif oi >= 500:
+        score += 12
+    else:
+        score += 5
+
+    if spread <= 5:
+        score += 20
+    elif spread <= 10:
+        score += 10
+    else:
+        score += 2
+
+    if 5 <= dte <= 30:
+        score += 15
+    elif 2 <= dte <= 45:
+        score += 8
+    else:
+        score += 3
+
+    return min(score, 100)
+
+def rating(score):
+    if score >= 85:
+        return "🔥 ممتاز جدًا"
+    elif score >= 70:
+        return "🟢 قوي"
+    elif score >= 55:
+        return "🟡 متوسط"
+    else:
+        return "🔴 ضعيف"
+
+async def analyze_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    mode = context.user_data.get("mode")
 
     try:
-        translated = GoogleTranslator(
-            source="auto",
-            target="en"
-        ).translate(text)
+        if mode == "contract":
+            parts = text.split()
 
-        await update.message.reply_text(
-            f"🇬🇧 الترجمة:\n{translated}"
-        )
+            if len(parts) != 8:
+                raise ValueError
+
+            symbol = parts[0].upper()
+            direction = parts[1].upper()
+            strike = float(parts[2])
+            dte = int(parts[3])
+            delta = float(parts[4])
+            volume = int(parts[5])
+            oi = int(parts[6])
+            spread = float(parts[7])
+
+            score = contract_score(delta, volume, oi, spread, dte)
+
+            await update.message.reply_text(
+                f"📊 تحليل العقد\n\n"
+                f"السهم: {symbol}\n"
+                f"الاتجاه: {direction}\n"
+                f"Strike: {strike}\n"
+                f"DTE: {dte} يوم\n"
+                f"Delta: {delta}\n"
+                f"Volume: {volume:,}\n"
+                f"Open Interest: {oi:,}\n"
+                f"Spread: {spread}%\n\n"
+                f"⭐ النتيجة: {score}/100\n"
+                f"{rating(score)}",
+                reply_markup=main_menu(),
+            )
+
+        elif mode == "opportunity":
+            parts = text.split()
+
+            if len(parts) != 5:
+                raise ValueError
+
+            symbol = parts[0].upper()
+            direction = parts[1].upper()
+            momentum = float(parts[2])
+            volume = float(parts[3])
+            trend = float(parts[4])
+
+            score = round((momentum * 0.4 + volume * 0.3 + trend * 0.3) * 10)
+
+            await update.message.reply_text(
+                f"🎯 تقييم الفرصة\n\n"
+                f"السهم: {symbol}\n"
+                f"الاتجاه: {direction}\n\n"
+                f"الزخم: {momentum}/10\n"
+                f"قوة التداول: {volume}/10\n"
+                f"الاتجاه الفني: {trend}/10\n\n"
+                f"⭐ النتيجة: {score}/100\n"
+                f"{rating(score)}",
+                reply_markup=main_menu(),
+            )
+
+        else:
+            await update.message.reply_text(
+                "اضغطي /start أولًا واختاري نوع التحليل."
+            )
+
     except Exception:
-        await update.message.reply_text("حدث خطأ أثناء الترجمة، حاول مرة أخرى.")
+        await update.message.reply_text(
+            "⚠️ البيانات مو بالصيغة المطلوبة.\n"
+            "اضغطي /start وجربي مرة ثانية.",
+            reply_markup=main_menu(),
+        )
 
 def main():
     if not TOKEN:
@@ -50,8 +200,9 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(buttons))
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, translate_message)
+        MessageHandler(filters.TEXT & ~filters.COMMAND, analyze_message)
     )
 
     app.run_polling(drop_pending_updates=True)
