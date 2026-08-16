@@ -16,6 +16,7 @@ from telegram.ext import (
     filters,
 )
 
+
 TOKEN = os.environ.get("BOT_TOKEN")
 MARKETDATA_TOKEN = os.environ.get("MARKETDATA_TOKEN")
 
@@ -26,6 +27,7 @@ MIN_TOP_UOA = 3
 WATCH_INTERVAL_SECONDS = 300
 WATCH_LOOP_SECONDS = 60
 CACHE_SECONDS = 900
+
 
 SCAN_SYMBOLS = [
     "TSLA", "NVDA", "AAPL", "AMD", "AMZN",
@@ -38,7 +40,19 @@ SCAN_SYMBOLS = [
     "JD", "PDD", "WMT", "COST", "JPM",
     "BAC", "C", "GS", "XOM", "CVX",
     "GM", "F", "DKNG", "RBLX", "CRWD",
+
+    "AI", "IONQ", "RGTI", "RKLB", "ASTS",
+    "LUNR", "OKLO", "SMR", "QUBT", "QBTS",
+    "AFRM", "UPST", "ROKU", "XYZ", "DDOG",
+    "SNOW", "NOW", "PANW", "NET", "MDB",
+    "U", "PATH", "ZM", "DOCU", "PINS",
+    "DASH", "ABNB", "LYFT", "SBUX", "NKE",
+    "TGT", "HD", "LOW", "MCD", "KO",
+    "PEP", "DAL", "UAL", "AAL", "CCL",
+    "RCL", "NCLH", "PFE", "LLY", "UNH",
+    "MRK", "ABBV", "GILD", "WBD", "T",
 ]
+
 
 TOP10_CACHE = {
     "time": 0,
@@ -70,8 +84,14 @@ def get_option_chain(symbol):
     url = f"https://api.marketdata.app/v1/options/chain/{symbol}/"
 
     today = date.today()
-    from_date = (today + timedelta(days=5)).isoformat()
-    to_date = (today + timedelta(days=30)).isoformat()
+
+    from_date = (
+        today + timedelta(days=5)
+    ).isoformat()
+
+    to_date = (
+        today + timedelta(days=30)
+    ).isoformat()
 
     params = {
         "from": from_date,
@@ -103,7 +123,10 @@ def get_option_chain(symbol):
 
 
 def get_stock_trend(symbol):
-    url = f"https://api.marketdata.app/v1/stocks/candles/D/{symbol}/"
+    url = (
+        f"https://api.marketdata.app/"
+        f"v1/stocks/candles/D/{symbol}/"
+    )
 
     response = requests.get(
         url,
@@ -116,49 +139,100 @@ def get_stock_trend(symbol):
     data = response.json()
 
     if data.get("s") != "ok":
-        raise ValueError("تعذر الحصول على حركة السهم.")
+        raise ValueError(
+            "تعذر الحصول على حركة السهم."
+        )
 
     closes = data.get("c", [])
     volumes = data.get("v", [])
 
     if len(closes) < 21:
-        raise ValueError("لا توجد شموع كافية لتحليل الاتجاه.")
+        raise ValueError(
+            "لا توجد شموع كافية لتحليل الاتجاه."
+        )
 
-    closes = [float(x) for x in closes]
+    closes = [
+        float(x)
+        for x in closes
+    ]
 
     last_close = closes[-1]
-    sma5 = sum(closes[-5:]) / 5
-    sma10 = sum(closes[-10:]) / 10
-    sma20 = sum(closes[-20:]) / 20
+
+    sma5 = (
+        sum(closes[-5:])
+        / 5
+    )
+
+    sma10 = (
+        sum(closes[-10:])
+        / 10
+    )
+
+    sma20 = (
+        sum(closes[-20:])
+        / 20
+    )
 
     change_3 = (
-        ((last_close - closes[-4]) / closes[-4]) * 100
+        (
+            last_close
+            - closes[-4]
+        )
+        / closes[-4]
+        * 100
         if closes[-4] != 0
         else 0
     )
 
     change_5 = (
-        ((last_close - closes[-6]) / closes[-6]) * 100
+        (
+            last_close
+            - closes[-6]
+        )
+        / closes[-6]
+        * 100
         if closes[-6] != 0
         else 0
     )
 
     change_10 = (
-        ((last_close - closes[-11]) / closes[-11]) * 100
+        (
+            last_close
+            - closes[-11]
+        )
+        / closes[-11]
+        * 100
         if closes[-11] != 0
         else 0
     )
 
-    if volumes and len(volumes) >= 20:
-        volume_values = [float(x) for x in volumes]
-        recent_volume = volume_values[-1]
-        avg_volume20 = sum(volume_values[-20:]) / 20
+    if (
+        volumes
+        and len(volumes) >= 20
+    ):
+        volume_values = [
+            float(x)
+            for x in volumes
+        ]
+
+        recent_volume = (
+            volume_values[-1]
+        )
+
+        avg_volume20 = (
+            sum(
+                volume_values[-20:]
+            )
+            / 20
+        )
 
         volume_ratio = (
-            recent_volume / avg_volume20
+            recent_volume
+            / avg_volume20
             if avg_volume20 > 0
             else 1
         )
+
     else:
         volume_ratio = 1
 
@@ -190,12 +264,18 @@ def get_stock_trend(symbol):
     elif change_10 < -2:
         bearish_points += 1
 
-    if bullish_points >= 3 and bullish_points > bearish_points:
+    if (
+        bullish_points >= 3
+        and bullish_points > bearish_points
+    ):
         bias = "CALL"
         label = "🟢 صاعد"
         strength = bullish_points
 
-    elif bearish_points >= 3 and bearish_points > bullish_points:
+    elif (
+        bearish_points >= 3
+        and bearish_points > bullish_points
+    ):
         bias = "PUT"
         label = "🔴 هابط"
         strength = bearish_points
@@ -203,66 +283,89 @@ def get_stock_trend(symbol):
     else:
         bias = "NEUTRAL"
         label = "🟡 محايد"
-        strength = max(bullish_points, bearish_points)
+        strength = max(
+            bullish_points,
+            bearish_points
+        )
 
     momentum_score = 0
 
     if bias == "CALL":
+
         if change_5 >= 5:
             momentum_score += 4
+
         elif change_5 >= 3:
             momentum_score += 3
+
         elif change_5 >= 1:
             momentum_score += 2
 
         if change_10 >= 8:
             momentum_score += 4
+
         elif change_10 >= 5:
             momentum_score += 3
+
         elif change_10 >= 2:
             momentum_score += 2
 
     elif bias == "PUT":
+
         if change_5 <= -5:
             momentum_score += 4
+
         elif change_5 <= -3:
             momentum_score += 3
+
         elif change_5 <= -1:
             momentum_score += 2
 
         if change_10 <= -8:
             momentum_score += 4
+
         elif change_10 <= -5:
             momentum_score += 3
+
         elif change_10 <= -2:
             momentum_score += 2
 
     if volume_ratio >= 1.5:
         momentum_score += 2
+
     elif volume_ratio >= 1.1:
         momentum_score += 1
 
-    momentum_score = min(momentum_score, 10)
+    momentum_score = min(
+        momentum_score,
+        10
+    )
 
     if momentum_score >= 8:
         momentum_label = "🔥 قوي جدًا"
+
     elif momentum_score >= 6:
         momentum_label = "🟢 قوي"
+
     elif momentum_score >= 4:
         momentum_label = "🟡 متوسط"
+
     else:
         momentum_label = "⚪ ضعيف"
 
     continuation_score = 0
 
     if bias == "CALL":
+
         if change_3 > 1:
             continuation_score += 2
+
         elif change_3 < -1:
             continuation_score -= 2
 
         if last_close > sma5:
             continuation_score += 1
+
         else:
             continuation_score -= 1
 
@@ -270,13 +373,16 @@ def get_stock_trend(symbol):
             continuation_score += 2
 
     elif bias == "PUT":
+
         if change_3 < -1:
             continuation_score += 2
+
         elif change_3 > 1:
             continuation_score -= 2
 
         if last_close < sma5:
             continuation_score += 1
+
         else:
             continuation_score -= 1
 
@@ -285,10 +391,13 @@ def get_stock_trend(symbol):
 
     if continuation_score >= 4:
         continuation_label = "🔥 مستمر بقوة"
+
     elif continuation_score >= 2:
         continuation_label = "🟢 مستمر"
+
     elif continuation_score >= 0:
         continuation_label = "🟡 متماسك"
+
     else:
         continuation_label = "⚠️ بدأ يضعف"
 
@@ -312,7 +421,10 @@ def get_stock_trend(symbol):
 
 
 def get_intraday_15m(symbol):
-    url = f"https://api.marketdata.app/v1/stocks/candles/15/{symbol}/"
+    url = (
+        f"https://api.marketdata.app/"
+        f"v1/stocks/candles/15/{symbol}/"
+    )
 
     response = requests.get(
         url,
@@ -325,20 +437,36 @@ def get_intraday_15m(symbol):
     data = response.json()
 
     if data.get("s") != "ok":
-        raise ValueError("تعذر الحصول على شموع 15 دقيقة.")
+        raise ValueError(
+            "تعذر الحصول على شموع 15 دقيقة."
+        )
 
     closes = data.get("c", [])
 
     if len(closes) < 6:
-        raise ValueError("بيانات 15 دقيقة غير كافية.")
+        raise ValueError(
+            "بيانات 15 دقيقة غير كافية."
+        )
 
-    closes = [float(x) for x in closes]
+    closes = [
+        float(x)
+        for x in closes
+    ]
 
     last_price = closes[-1]
-    sma5 = sum(closes[-5:]) / 5
+
+    sma5 = (
+        sum(closes[-5:])
+        / 5
+    )
 
     change_3bars = (
-        ((last_price - closes[-4]) / closes[-4]) * 100
+        (
+            last_price
+            - closes[-4]
+        )
+        / closes[-4]
+        * 100
         if closes[-4] != 0
         else 0
     )
@@ -348,9 +476,13 @@ def get_intraday_15m(symbol):
 
     recent = closes[-5:]
 
-    for i in range(1, len(recent)):
+    for i in range(
+        1,
+        len(recent)
+    ):
         if recent[i] > recent[i - 1]:
             up_bars += 1
+
         elif recent[i] < recent[i - 1]:
             down_bars += 1
 
@@ -363,8 +495,15 @@ def get_intraday_15m(symbol):
     }
 
 
-def contract_score(delta, volume, oi, spread_pct, dte):
+def contract_score(
+    delta,
+    volume,
+    oi,
+    spread_pct,
+    dte
+):
     score = 0
+
     delta_abs = abs(delta)
 
     if 0.42 <= delta_abs <= 0.58:
@@ -430,16 +569,30 @@ def contract_score(delta, volume, oi, spread_pct, dte):
     elif 22 <= dte <= 30:
         score += 6
 
-    return min(score, 90)
+    return min(
+        score,
+        90
+    )
 
 
 def normalize_contract_score(raw_score):
-    return round((raw_score / 90) * 100)
+    return round(
+        (
+            raw_score / 90
+        ) * 100
+    )
 
 
-def unusual_activity_score(volume, oi):
+def unusual_activity_score(
+    volume,
+    oi
+):
     if oi <= 0:
-        return 0, 0, "⚪ غير متاح"
+        return (
+            0,
+            0,
+            "⚪ غير متاح"
+        )
 
     ratio = volume / oi
 
@@ -473,7 +626,9 @@ def unusual_activity_score(volume, oi):
         oi_points = 0
 
     score = min(
-        ratio_points + volume_points + oi_points,
+        ratio_points
+        + volume_points
+        + oi_points,
         10
     )
 
@@ -488,13 +643,26 @@ def unusual_activity_score(volume, oi):
     else:
         label = "⚪ طبيعي"
 
-    return score, ratio, label
+    return (
+        score,
+        ratio,
+        label
+    )
 
 
-def apply_market_score(side, trend):
+def apply_market_score(
+    side,
+    trend
+):
     bias = trend["bias"]
-    momentum = trend["momentum_score"]
-    continuation = trend["continuation_score"]
+
+    momentum = trend[
+        "momentum_score"
+    ]
+
+    continuation = trend[
+        "continuation_score"
+    ]
 
     adjustment = 0
 
@@ -502,6 +670,7 @@ def apply_market_score(side, trend):
         return 0
 
     if side == bias:
+
         if momentum >= 8:
             adjustment += 5
         elif momentum >= 6:
@@ -519,6 +688,7 @@ def apply_market_score(side, trend):
             adjustment -= 3
 
     else:
+
         if momentum >= 8:
             adjustment -= 12
         elif momentum >= 6:
@@ -536,10 +706,19 @@ def apply_market_score(side, trend):
     return adjustment
 
 
-def decision_status(contract, trend):
+def decision_status(
+    contract,
+    trend
+):
     bias = trend["bias"]
-    momentum = trend["momentum_score"]
-    continuation = trend["continuation_score"]
+
+    momentum = trend[
+        "momentum_score"
+    ]
+
+    continuation = trend[
+        "continuation_score"
+    ]
 
     if bias == "NEUTRAL":
         return {
@@ -566,8 +745,10 @@ def decision_status(contract, trend):
         return {
             "label": "🟡 غير مؤهل للمراقبة",
             "reason": (
-                f"التقييم {contract['score']}/100 "
-                f"أقل من {MIN_TOP_SCORE}/100"
+                f"التقييم "
+                f"{contract['score']}/100 "
+                f"أقل من "
+                f"{MIN_TOP_SCORE}/100"
             ),
             "rank": 1,
         }
@@ -576,8 +757,10 @@ def decision_status(contract, trend):
         return {
             "label": "🟡 غير مؤهل للمراقبة",
             "reason": (
-                f"النشاط {contract['uoa_score']}/10 "
-                f"أقل من {MIN_TOP_UOA}/10"
+                f"النشاط "
+                f"{contract['uoa_score']}/10 "
+                f"أقل من "
+                f"{MIN_TOP_UOA}/10"
             ),
             "rank": 1,
         }
@@ -589,24 +772,37 @@ def decision_status(contract, trend):
     ):
         return {
             "label": "🟢 تأكيد دخول",
-            "reason": "الاتجاه والزخم والاستمرار متوافقون",
+            "reason": (
+                "الاتجاه والزخم "
+                "والاستمرار متوافقون"
+            ),
             "rank": 2,
         }
 
     if momentum < 6:
         reason = (
-            f"الزخم {momentum}/10 "
-            "ويحتاج تأكيد حركة قصيرة"
+            f"الزخم "
+            f"{momentum}/10 "
+            f"ويحتاج تأكيد حركة قصيرة"
         )
+
     elif continuation < 2:
-        reason = "ننتظر تأكيد استمرار الحركة"
+        reason = (
+            "ننتظر تأكيد استمرار الحركة"
+        )
+
     elif contract["base_score"] < 78:
         reason = (
-            f"جودة العقد {contract['base_score']}/100 "
-            "وتحتاج تحسنًا"
+            f"جودة العقد "
+            f"{contract['base_score']}/100 "
+            f"وتحتاج تحسنًا"
         )
+
     else:
-        reason = "الفرصة جيدة لكنها تحتاج تأكيدًا إضافيًا"
+        reason = (
+            "الفرصة جيدة لكنها تحتاج "
+            "تأكيدًا إضافيًا"
+        )
 
     return {
         "label": "🟡 انتظار تأكيد",
@@ -630,7 +826,10 @@ def rating(score):
         return "🔴 ضعيف"
 
 
-def get_top_contracts(data, trend):
+def get_top_contracts(
+    data,
+    trend
+):
     contracts = []
 
     fields = [
@@ -652,14 +851,28 @@ def get_top_contracts(data, trend):
                 f"بيانات {field} غير موجودة."
             )
 
-    count = len(data["optionSymbol"])
+    count = len(
+        data["optionSymbol"]
+    )
 
     for i in range(count):
+
         try:
-            option_symbol = data["optionSymbol"][i]
-            side = str(data["side"][i]).upper()
-            strike = float(data["strike"][i])
-            dte = int(data["dte"][i])
+            option_symbol = (
+                data["optionSymbol"][i]
+            )
+
+            side = str(
+                data["side"][i]
+            ).upper()
+
+            strike = float(
+                data["strike"][i]
+            )
+
+            dte = int(
+                data["dte"][i]
+            )
 
             bid = data["bid"][i]
             ask = data["ask"][i]
@@ -688,16 +901,29 @@ def get_top_contracts(data, trend):
             oi = int(oi)
             delta = float(delta)
 
-            if dte < 5 or dte > 30:
+            if (
+                dte < 5
+                or dte > 30
+            ):
                 continue
 
             if ask > MAX_OPTION_ASK:
                 continue
 
-            if ask <= 0 or mid <= 0 or bid < 0:
+            if (
+                ask <= 0
+                or mid <= 0
+                or bid < 0
+            ):
                 continue
 
-            spread_pct = ((ask - bid) / mid) * 100
+            spread_pct = (
+                (
+                    ask - bid
+                )
+                / mid
+                * 100
+            )
 
             if volume < 50:
                 continue
@@ -705,7 +931,10 @@ def get_top_contracts(data, trend):
             if oi < 100:
                 continue
 
-            if abs(delta) < 0.20 or abs(delta) > 0.80:
+            if (
+                abs(delta) < 0.20
+                or abs(delta) > 0.80
+            ):
                 continue
 
             if spread_pct > 15:
@@ -719,22 +948,28 @@ def get_top_contracts(data, trend):
                 dte
             )
 
-            base_score = normalize_contract_score(
-                raw_score
+            base_score = (
+                normalize_contract_score(
+                    raw_score
+                )
             )
 
             (
                 uoa_score,
                 volume_oi_ratio,
                 uoa_label
-            ) = unusual_activity_score(
-                volume,
-                oi
+            ) = (
+                unusual_activity_score(
+                    volume,
+                    oi
+                )
             )
 
-            market_adjustment = apply_market_score(
-                side,
-                trend
+            market_adjustment = (
+                apply_market_score(
+                    side,
+                    trend
+                )
             )
 
             uoa_adjustment = round(
@@ -750,7 +985,9 @@ def get_top_contracts(data, trend):
             display_score = max(
                 0,
                 min(
-                    round(internal_score),
+                    round(
+                        internal_score
+                    ),
                     98
                 )
             )
@@ -777,12 +1014,16 @@ def get_top_contracts(data, trend):
                 "score": display_score,
             }
 
-            contract["decision"] = decision_status(
-                contract,
-                trend
+            contract["decision"] = (
+                decision_status(
+                    contract,
+                    trend
+                )
             )
 
-            contracts.append(contract)
+            contracts.append(
+                contract
+            )
 
         except (
             TypeError,
@@ -805,8 +1046,14 @@ def get_top_contracts(data, trend):
 
 
 def analyze_symbol(symbol):
-    trend = get_stock_trend(symbol)
-    data = get_option_chain(symbol)
+    trend = get_stock_trend(
+        symbol
+    )
+
+    data = get_option_chain(
+        symbol
+    )
+
     contracts = get_top_contracts(
         data,
         trend
@@ -822,12 +1069,19 @@ def analyze_symbol(symbol):
         "trend": trend,
         "contract": best,
         "contracts": contracts,
-        "internal_score": best["internal_score"],
+        "internal_score": best[
+            "internal_score"
+        ],
     }
 
 
-def watch_key(chat_id, symbol):
-    return f"{chat_id}:{symbol}"
+def watch_key(
+    chat_id,
+    symbol
+):
+    return (
+        f"{chat_id}:{symbol}"
+    )
 
 
 def add_pending_watch(
@@ -839,19 +1093,34 @@ def add_pending_watch(
     if trend["bias"] == "NEUTRAL":
         return False
 
-    if contract["side"] != trend["bias"]:
+    if (
+        contract["side"]
+        != trend["bias"]
+    ):
         return False
 
-    if contract["score"] < MIN_TOP_SCORE:
+    if (
+        contract["score"]
+        < MIN_TOP_SCORE
+    ):
         return False
 
-    if contract["uoa_score"] < MIN_TOP_UOA:
+    if (
+        contract["uoa_score"]
+        < MIN_TOP_UOA
+    ):
         return False
 
-    if contract["ask"] > MAX_OPTION_ASK:
+    if (
+        contract["ask"]
+        > MAX_OPTION_ASK
+    ):
         return False
 
-    if contract["decision"]["label"] != "🟡 انتظار تأكيد":
+    if (
+        contract["decision"]["label"]
+        != "🟡 انتظار تأكيد"
+    ):
         return False
 
     key = watch_key(
@@ -867,7 +1136,9 @@ def add_pending_watch(
         "side": contract["side"],
         "strike": contract["strike"],
         "dte": contract["dte"],
-        "option_symbol": contract["option_symbol"],
+        "option_symbol": contract[
+            "option_symbol"
+        ],
         "original_ask": contract["ask"],
         "created_at": now,
         "last_checked_at": now,
@@ -889,25 +1160,39 @@ def get_matching_contract(
     symbol,
     option_symbol
 ):
-    data = get_option_chain(symbol)
+    data = get_option_chain(
+        symbol
+    )
 
     symbols = data.get(
         "optionSymbol",
         []
     )
 
-    for i, item in enumerate(symbols):
+    for i, item in enumerate(
+        symbols
+    ):
 
         if item != option_symbol:
             continue
 
         try:
             return {
-                "ask": float(data["ask"][i]),
-                "bid": float(data["bid"][i]),
-                "mid": float(data["mid"][i]),
-                "volume": int(data["volume"][i]),
-                "oi": int(data["openInterest"][i]),
+                "ask": float(
+                    data["ask"][i]
+                ),
+                "bid": float(
+                    data["bid"][i]
+                ),
+                "mid": float(
+                    data["mid"][i]
+                ),
+                "volume": int(
+                    data["volume"][i]
+                ),
+                "oi": int(
+                    data["openInterest"][i]
+                ),
             }
 
         except (
@@ -924,13 +1209,28 @@ def check_intraday_confirmation(
     side,
     intraday
 ):
-    last_price = intraday["last_price"]
-    sma5 = intraday["sma5"]
-    move = intraday["change_3bars"]
-    up_bars = intraday["up_bars"]
-    down_bars = intraday["down_bars"]
+    last_price = (
+        intraday["last_price"]
+    )
+
+    sma5 = (
+        intraday["sma5"]
+    )
+
+    move = (
+        intraday["change_3bars"]
+    )
+
+    up_bars = (
+        intraday["up_bars"]
+    )
+
+    down_bars = (
+        intraday["down_bars"]
+    )
 
     if side == "CALL":
+
         confirmed = (
             last_price > sma5
             and move >= 0.20
@@ -944,6 +1244,7 @@ def check_intraday_confirmation(
         )
 
     else:
+
         confirmed = (
             last_price < sma5
             and move <= -0.20
@@ -974,28 +1275,40 @@ def check_intraday_confirmation(
     )
 
 
-async def monitor_pending(application):
+async def monitor_pending(
+    application
+):
     await asyncio.sleep(
         WATCH_LOOP_SECONDS
     )
 
     while True:
+
         now = time.time()
 
         try:
+
             for key, watch in list(
                 PENDING_WATCHES.items()
             ):
+
                 try:
                     elapsed = (
                         now
-                        - watch["last_checked_at"]
+                        - watch[
+                            "last_checked_at"
+                        ]
                     )
 
-                    if elapsed < WATCH_INTERVAL_SECONDS:
+                    if (
+                        elapsed
+                        < WATCH_INTERVAL_SECONDS
+                    ):
                         continue
 
-                    watch["last_checked_at"] = now
+                    watch[
+                        "last_checked_at"
+                    ] = now
 
                     symbol = watch["symbol"]
                     side = watch["side"]
@@ -1003,18 +1316,32 @@ async def monitor_pending(application):
                     dte = watch["dte"]
                     chat_id = watch["chat_id"]
 
-                    trend = get_stock_trend(symbol)
+                    trend = (
+                        get_stock_trend(
+                            symbol
+                        )
+                    )
 
                     if (
                         trend["bias"] != side
-                        or trend["continuation_score"] < 0
+                        or trend[
+                            "continuation_score"
+                        ] < 0
                     ):
-                        await application.bot.send_message(
-                            chat_id=chat_id,
-                            text=(
-                                "🔴 تم استبعاد الفرصة\n\n"
-                                f"{symbol} {side} {strike:g} | {dte}D\n"
-                                "الاتجاه لم يعد داعمًا."
+
+                        await (
+                            application
+                            .bot
+                            .send_message(
+                                chat_id=chat_id,
+                                text=(
+                                    "🔴 تم استبعاد الفرصة\n\n"
+                                    f"{symbol} "
+                                    f"{side} "
+                                    f"{strike:g} | "
+                                    f"{dte}D\n"
+                                    "الاتجاه لم يعد داعمًا."
+                                )
                             )
                         )
 
@@ -1025,11 +1352,20 @@ async def monitor_pending(application):
 
                         continue
 
-                    intraday = get_intraday_15m(symbol)
+                    intraday = (
+                        get_intraday_15m(
+                            symbol
+                        )
+                    )
 
-                    status, reason = check_intraday_confirmation(
-                        side,
-                        intraday
+                    (
+                        status,
+                        reason
+                    ) = (
+                        check_intraday_confirmation(
+                            side,
+                            intraday
+                        )
                     )
 
                     if status == "WAIT":
@@ -1039,15 +1375,24 @@ async def monitor_pending(application):
                             side,
                             strike
                         )
+
                         continue
 
                     if status == "INVALID":
-                        await application.bot.send_message(
-                            chat_id=chat_id,
-                            text=(
-                                "🔴 تم استبعاد الفرصة\n\n"
-                                f"{symbol} {side} {strike:g} | {dte}D\n"
-                                f"💡 {reason}"
+
+                        await (
+                            application
+                            .bot
+                            .send_message(
+                                chat_id=chat_id,
+                                text=(
+                                    "🔴 تم استبعاد الفرصة\n\n"
+                                    f"{symbol} "
+                                    f"{side} "
+                                    f"{strike:g} | "
+                                    f"{dte}D\n"
+                                    f"💡 {reason}"
+                                )
                             )
                         )
 
@@ -1058,24 +1403,42 @@ async def monitor_pending(application):
 
                         continue
 
-                    option_now = get_matching_contract(
-                        symbol,
-                        watch["option_symbol"]
+                    option_now = (
+                        get_matching_contract(
+                            symbol,
+                            watch[
+                                "option_symbol"
+                            ]
+                        )
                     )
 
                     if not option_now:
                         continue
 
-                    ask_now = option_now["ask"]
+                    ask_now = (
+                        option_now["ask"]
+                    )
 
-                    if ask_now > MAX_OPTION_ASK:
-                        await application.bot.send_message(
-                            chat_id=chat_id,
-                            text=(
-                                "⚠️ تحقق التأكيد الفني "
-                                "لكن السعر تجاوز $3\n\n"
-                                f"{symbol} {side} {strike:g} | {dte}D\n"
-                                f"💵 Ask: ${ask_now:.2f}"
+                    if (
+                        ask_now
+                        > MAX_OPTION_ASK
+                    ):
+
+                        await (
+                            application
+                            .bot
+                            .send_message(
+                                chat_id=chat_id,
+                                text=(
+                                    "⚠️ تحقق التأكيد الفني "
+                                    "لكن السعر تجاوز $3\n\n"
+                                    f"{symbol} "
+                                    f"{side} "
+                                    f"{strike:g} | "
+                                    f"{dte}D\n"
+                                    f"💵 Ask: "
+                                    f"${ask_now:.2f}"
+                                )
                             )
                         )
 
@@ -1086,15 +1449,23 @@ async def monitor_pending(application):
 
                         continue
 
-                    await application.bot.send_message(
-                        chat_id=chat_id,
-                        text=(
-                            "🟢 تحقق تأكيد البوت\n\n"
-                            f"{symbol} {side} {strike:g} | {dte}D\n"
-                            f"💵 Ask: ${ask_now:.2f}\n"
-                            f"💡 {reason}\n\n"
-                            "📊 اعتمادًا على آخر بيانات "
-                            "15 دقيقة المتاحة."
+                    await (
+                        application
+                        .bot
+                        .send_message(
+                            chat_id=chat_id,
+                            text=(
+                                "🟢 تحقق تأكيد البوت\n\n"
+                                f"{symbol} "
+                                f"{side} "
+                                f"{strike:g} | "
+                                f"{dte}D\n"
+                                f"💵 Ask: "
+                                f"${ask_now:.2f}\n"
+                                f"💡 {reason}\n\n"
+                                "📊 اعتمادًا على آخر "
+                                "بيانات 15 دقيقة المتاحة."
+                            )
                         )
                     )
 
@@ -1104,6 +1475,7 @@ async def monitor_pending(application):
                     )
 
                 except Exception as e:
+
                     print(
                         "WATCH ERROR:",
                         key,
@@ -1111,6 +1483,7 @@ async def monitor_pending(application):
                     )
 
         except Exception as e:
+
             print(
                 "MONITOR ERROR:",
                 e
@@ -1124,32 +1497,53 @@ async def monitor_pending(application):
 def scan_top10():
     now = time.time()
 
-    cached = TOP10_CACHE["results"]
+    cached = (
+        TOP10_CACHE[
+            "results"
+        ]
+    )
 
     if (
         cached is not None
-        and now - TOP10_CACHE["time"] < CACHE_SECONDS
+        and (
+            now
+            - TOP10_CACHE[
+                "time"
+            ]
+        ) < CACHE_SECONDS
     ):
         return cached
 
     results = []
 
     for symbol in SCAN_SYMBOLS:
+
         try:
-            result = analyze_symbol(symbol)
+            result = (
+                analyze_symbol(
+                    symbol
+                )
+            )
 
             if not result:
                 continue
 
-            trend = result["trend"]
+            trend = (
+                result["trend"]
+            )
 
-            if trend["bias"] == "NEUTRAL":
+            if (
+                trend["bias"]
+                == "NEUTRAL"
+            ):
                 continue
 
             matching = [
                 contract
-                for contract in result["contracts"]
-                if contract["side"] == trend["bias"]
+                for contract
+                in result["contracts"]
+                if contract["side"]
+                == trend["bias"]
             ]
 
             if not matching:
@@ -1157,53 +1551,100 @@ def scan_top10():
 
             matching.sort(
                 key=lambda x: (
-                    -x["internal_score"],
-                    -x["uoa_score"],
-                    x["spread_pct"]
+                    -x[
+                        "internal_score"
+                    ],
+                    -x[
+                        "uoa_score"
+                    ],
+                    x[
+                        "spread_pct"
+                    ]
                 )
             )
 
-            contract = matching[0]
-
-            if contract["score"] < MIN_TOP_SCORE:
-                continue
-
-            if contract["uoa_score"] < MIN_TOP_UOA:
-                continue
-
-            decision = decision_status(
-                contract,
-                trend
+            contract = (
+                matching[0]
             )
 
-            if decision["rank"] == 0:
+            if (
+                contract["score"]
+                < MIN_TOP_SCORE
+            ):
                 continue
 
-            result["contract"] = contract
-            result["internal_score"] = contract["internal_score"]
-            result["decision"] = decision
+            if (
+                contract["uoa_score"]
+                < MIN_TOP_UOA
+            ):
+                continue
 
-            results.append(result)
+            decision = (
+                decision_status(
+                    contract,
+                    trend
+                )
+            )
+
+            if (
+                decision["rank"]
+                == 0
+            ):
+                continue
+
+            result[
+                "contract"
+            ] = contract
+
+            result[
+                "internal_score"
+            ] = contract[
+                "internal_score"
+            ]
+
+            result[
+                "decision"
+            ] = decision
+
+            results.append(
+                result
+            )
 
         except Exception as e:
+
             print(
-                f"SCAN ERROR {symbol}: {e}"
+                f"SCAN ERROR "
+                f"{symbol}: {e}"
             )
 
     results.sort(
         key=lambda x: (
             -x["decision"]["rank"],
             -x["internal_score"],
-            -x["trend"]["momentum_score"],
-            -x["contract"]["uoa_score"],
-            x["contract"]["spread_pct"]
+            -x[
+                "trend"
+            ][
+                "momentum_score"
+            ],
+            -x[
+                "contract"
+            ][
+                "uoa_score"
+            ],
+            x[
+                "contract"
+            ][
+                "spread_pct"
+            ]
         )
     )
 
     top10 = results[:10]
 
     TOP10_CACHE["time"] = now
-    TOP10_CACHE["results"] = top10
+    TOP10_CACHE[
+        "results"
+    ] = top10
 
     return top10
 
@@ -1248,15 +1689,20 @@ def main_menu():
 
 
 def format_top10(results):
+
     if not results:
         return (
             "🏆 أفضل فرص اليوم\n\n"
-            "❌ لا توجد فرص تحقق الشروط حاليًا."
+            "❌ لا توجد فرص تحقق "
+            "الشروط حاليًا."
         )
 
     message = (
-        f"🏆 أفضل {len(results)} فرص لليوم\n"
-        f"💰 Ask ≤ $3 | ⭐ 80+ | 🔥 نشاط 3+\n"
+        f"🏆 أفضل "
+        f"{len(results)} فرص لليوم\n"
+        f"💰 ≤ $3 | "
+        f"⭐ 80+ | "
+        f"🔥 3+\n"
         f"━━━━━━━━━━━━━━\n\n"
     )
 
@@ -1264,18 +1710,28 @@ def format_top10(results):
         results,
         start=1
     ):
-        contract = item["contract"]
-        decision = item["decision"]
+
+        contract = (
+            item["contract"]
+        )
+
+        decision = (
+            item["decision"]
+        )
 
         message += (
-            f"{index}️⃣ {item['symbol']} "
+            f"{index}️⃣ "
+            f"{item['symbol']} "
             f"{contract['side']} "
             f"{contract['strike']:g} | "
             f"{contract['dte']}D\n"
+
             f"{decision['label']}\n"
+
             f"⭐ {contract['score']} | "
             f"🔥 {contract['uoa_score']} | "
             f"💵 ${contract['ask']:.2f}\n"
+
             f"━━━━━━━━━━━━━━\n"
         )
 
@@ -1287,17 +1743,22 @@ def format_top_contracts(
     contracts,
     trend
 ):
+
     if not contracts:
+
         return (
-            f"🔎 نتائج البحث عن {symbol}\n\n"
+            f"🔎 نتائج البحث عن "
+            f"{symbol}\n\n"
             "❌ لم أجد عقدًا مناسبًا "
             "بسعر Ask لا يتجاوز $3."
         )
 
     message = (
-        f"🔎 أفضل العقود لـ {symbol}\n"
+        f"🔎 أفضل العقود لـ "
+        f"{symbol}\n"
         f"📊 {trend['label']} | "
-        f"زخم {trend['momentum_score']}/10 | "
+        f"زخم "
+        f"{trend['momentum_score']}/10 | "
         f"{trend['continuation_label']}\n"
         f"💵 ${trend['last_close']:.2f}\n"
         f"━━━━━━━━━━━━━━\n\n"
@@ -1307,62 +1768,101 @@ def format_top_contracts(
         contracts,
         start=1
     ):
-        decision = contract["decision"]
-        dte_short = f"{contract['dte']}D"
 
-        if decision["rank"] == 0:
+        decision = (
+            contract["decision"]
+        )
+
+        dte_short = (
+            f"{contract['dte']}D"
+        )
+
+        if (
+            decision["rank"]
+            == 0
+        ):
+
             message += (
-                f"{index}️⃣ {symbol} "
+                f"{index}️⃣ "
+                f"{symbol} "
                 f"{contract['side']} "
                 f"{contract['strike']:g} | "
                 f"{dte_short}\n"
-                f"🔴 استبعاد — {decision['reason']}\n"
-                f"💵 ${contract['ask']:.2f}\n"
+
+                f"🔴 استبعاد — "
+                f"{decision['reason']}\n"
+
+                f"💵 "
+                f"${contract['ask']:.2f}\n"
+
                 f"━━━━━━━━━━━━━━\n"
             )
+
             continue
 
         if (
-            contract["score"] < MIN_TOP_SCORE
-            or contract["uoa_score"] < MIN_TOP_UOA
+            contract["score"]
+            < MIN_TOP_SCORE
+            or contract["uoa_score"]
+            < MIN_TOP_UOA
         ):
+
             message += (
-                f"{index}️⃣ {symbol} "
+                f"{index}️⃣ "
+                f"{symbol} "
                 f"{contract['side']} "
                 f"{contract['strike']:g} | "
                 f"{dte_short}\n"
+
                 f"⚪ غير مؤهل — "
                 f"{contract['score']}/100\n"
-                f"💵 ${contract['ask']:.2f}\n"
+
+                f"💵 "
+                f"${contract['ask']:.2f}\n"
+
                 f"━━━━━━━━━━━━━━\n"
             )
+
             continue
 
-        if decision["label"] == "🟡 انتظار تأكيد":
+        if (
+            decision["label"]
+            == "🟡 انتظار تأكيد"
+        ):
+
             message += (
-                f"{index}️⃣ {symbol} "
+                f"{index}️⃣ "
+                f"{symbol} "
                 f"{contract['side']} "
                 f"{contract['strike']:g} | "
                 f"{dte_short}\n"
+
                 f"🟡 انتظار تأكيد\n"
+
                 f"⭐ {contract['score']} | "
                 f"🔥 {contract['uoa_score']} | "
                 f"💵 ${contract['ask']:.2f} | "
                 f"Δ {contract['delta']:.2f}\n"
+
                 f"━━━━━━━━━━━━━━\n"
             )
+
             continue
 
         message += (
-            f"{index}️⃣ {symbol} "
+            f"{index}️⃣ "
+            f"{symbol} "
             f"{contract['side']} "
             f"{contract['strike']:g} | "
             f"{dte_short}\n"
+
             f"🟢 تأكيد دخول\n"
+
             f"⭐ {contract['score']} | "
             f"🔥 {contract['uoa_score']} | "
             f"💵 ${contract['ask']:.2f} | "
             f"Δ {contract['delta']:.2f}\n"
+
             f"━━━━━━━━━━━━━━\n"
         )
 
@@ -1373,9 +1873,11 @@ def format_watch_added(
     symbol,
     contract
 ):
+
     return (
         "👀 تمت إضافة الفرصة للمراقبة\n"
-        f"{symbol} {contract['side']} "
+        f"{symbol} "
+        f"{contract['side']} "
         f"{contract['strike']:g} | "
         f"{contract['dte']}D\n"
         f"⭐ {contract['score']} | "
@@ -1388,14 +1890,22 @@ async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    context.user_data["chat_id"] = (
+
+    context.user_data[
+        "chat_id"
+    ] = (
         update.effective_chat.id
     )
 
-    await update.message.reply_text(
-        "🤖 بوت تحليل واختيار عقود الأوبشن\n\n"
-        "اختر الخدمة المطلوبة:",
-        reply_markup=main_menu(),
+    await (
+        update.message
+        .reply_text(
+            "🤖 بوت تحليل واختيار "
+            "عقود الأوبشن\n\n"
+            "اختر الخدمة المطلوبة:",
+            reply_markup=
+                main_menu(),
+        )
     )
 
 
@@ -1403,41 +1913,71 @@ async def buttons(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    query = update.callback_query
+
+    query = (
+        update.callback_query
+    )
+
     await query.answer()
 
-    chat_id = query.message.chat_id
-    context.user_data["chat_id"] = chat_id
+    chat_id = (
+        query.message.chat_id
+    )
+
+    context.user_data[
+        "chat_id"
+    ] = chat_id
 
     if query.data == "top10":
 
-        await query.message.reply_text(
-            "🏆 جاري فحص الأسهم...\n"
-            "⏳ لحظة..."
+        await (
+            query.message
+            .reply_text(
+                "🏆 جاري فحص 100 سهم...\n"
+                "⏳ قد يستغرق قليلًا..."
+            )
         )
 
         try:
-            results = scan_top10()
 
-            await query.message.reply_text(
-                format_top10(results),
-                reply_markup=main_menu(),
+            results = (
+                scan_top10()
+            )
+
+            await (
+                query.message
+                .reply_text(
+                    format_top10(
+                        results
+                    ),
+                    reply_markup=
+                        main_menu(),
+                )
             )
 
             watches_added = []
 
             for item in results:
-                contract = item["contract"]
-                trend = item["trend"]
 
-                added = add_pending_watch(
-                    chat_id,
-                    item["symbol"],
-                    contract,
-                    trend
+                contract = (
+                    item["contract"]
+                )
+
+                trend = (
+                    item["trend"]
+                )
+
+                added = (
+                    add_pending_watch(
+                        chat_id,
+                        item["symbol"],
+                        contract,
+                        trend
+                    )
                 )
 
                 if added:
+
                     watches_added.append(
                         (
                             item["symbol"],
@@ -1446,9 +1986,14 @@ async def buttons(
                     )
 
             if watches_added:
+
                 lines = []
 
-                for symbol, contract in watches_added:
+                for (
+                    symbol,
+                    contract
+                ) in watches_added:
+
                     lines.append(
                         f"• {symbol} "
                         f"{contract['side']} "
@@ -1457,65 +2002,114 @@ async def buttons(
                     )
 
                 watch_text = (
-                    "👀 تمت إضافة فرص الانتظار للمراقبة:\n\n"
+                    "👀 فرص تحت المراقبة:\n\n"
                     + "\n".join(lines)
                     + "\n\n"
                     "⏱️ إعادة التحقق كل 5 دقائق"
                 )
 
-                await query.message.reply_text(
-                    watch_text
+                await (
+                    query.message
+                    .reply_text(
+                        watch_text
+                    )
                 )
 
         except Exception as e:
+
             print(
                 "TOP10 ERROR:",
                 e
             )
 
-            await query.message.reply_text(
-                "⚠️ تعذر إكمال الفحص حاليًا.",
-                reply_markup=main_menu(),
+            await (
+                query.message
+                .reply_text(
+                    "⚠️ تعذر إكمال "
+                    "الفحص حاليًا.",
+                    reply_markup=
+                        main_menu(),
+                )
             )
 
-    elif query.data == "scan_options":
-        context.user_data["mode"] = "scan"
+    elif (
+        query.data
+        == "scan_options"
+    ):
 
-        await query.message.reply_text(
-            "🔎 اكتب رمز الشركة:\n\n"
-            "مثال:\nNVDA"
+        context.user_data[
+            "mode"
+        ] = "scan"
+
+        await (
+            query.message
+            .reply_text(
+                "🔎 اكتب رمز الشركة:\n\n"
+                "مثال:\nNVDA"
+            )
         )
 
-    elif query.data == "contract":
-        context.user_data["mode"] = "contract"
+    elif (
+        query.data
+        == "contract"
+    ):
 
-        await query.message.reply_text(
-            "📊 أرسل بيانات العقد:\n\n"
-            "SYMBOL CALL/PUT STRIKE "
-            "DTE DELTA VOLUME OI SPREAD"
+        context.user_data[
+            "mode"
+        ] = "contract"
+
+        await (
+            query.message
+            .reply_text(
+                "📊 أرسل بيانات العقد:\n\n"
+                "SYMBOL CALL/PUT STRIKE "
+                "DTE DELTA VOLUME OI SPREAD"
+            )
         )
 
-    elif query.data == "opportunity":
-        context.user_data["mode"] = "opportunity"
+    elif (
+        query.data
+        == "opportunity"
+    ):
 
-        await query.message.reply_text(
-            "🎯 أرسل بيانات الفرصة:\n\n"
-            "SYMBOL DIRECTION "
-            "MOMENTUM VOLUME TREND"
+        context.user_data[
+            "mode"
+        ] = "opportunity"
+
+        await (
+            query.message
+            .reply_text(
+                "🎯 أرسل بيانات الفرصة:\n\n"
+                "SYMBOL DIRECTION "
+                "MOMENTUM VOLUME TREND"
+            )
         )
 
-    elif query.data == "help":
-        await query.message.reply_text(
-            "ℹ️ أفضل فرص اليوم تعرض الخلاصة فقط.\n\n"
-            "🟡 العقد المؤهل يدخل المراقبة تلقائيًا.\n"
-            "⏱️ إعادة الفحص كل 5 دقائق.\n"
-            "🟢 إذا تحقق التأكيد يصلك تنبيه.\n"
-            "🔴 إذا فسدت الفرصة يصلك استبعاد.\n\n"
-            "⭐ تقييم 80+\n"
-            "🔥 نشاط 3+\n"
-            "💰 Ask ≤ $3\n"
-            "🧭 مع اتجاه السهم",
-            reply_markup=main_menu(),
+    elif (
+        query.data
+        == "help"
+    ):
+
+        await (
+            query.message
+            .reply_text(
+                "ℹ️ طريقة الاستخدام\n\n"
+                "🏆 أفضل فرص اليوم: "
+                "يفحص 100 سهم.\n\n"
+                "🔎 البحث اليدوي: "
+                "اكتبي رمز أي سهم.\n\n"
+                "🟡 انتظار تأكيد: "
+                "يدخل المراقبة تلقائيًا.\n\n"
+                "⏱️ إعادة الفحص كل 5 دقائق.\n"
+                "📊 التأكيد يعتمد على آخر "
+                "بيانات 15 دقيقة المتاحة.\n\n"
+                "⭐ تقييم 80+\n"
+                "🔥 نشاط 3+\n"
+                "💰 Ask ≤ $3\n"
+                "🧭 مع اتجاه السهم",
+                reply_markup=
+                    main_menu(),
+            )
         )
 
 
@@ -1523,156 +2117,272 @@ async def analyze_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    text = update.message.text.strip()
 
-    chat_id = update.effective_chat.id
-    context.user_data["chat_id"] = chat_id
+    text = (
+        update.message.text
+        .strip()
+    )
 
-    mode = context.user_data.get("mode")
+    chat_id = (
+        update.effective_chat.id
+    )
+
+    context.user_data[
+        "chat_id"
+    ] = chat_id
+
+    mode = (
+        context.user_data.get(
+            "mode"
+        )
+    )
 
     try:
+
         if mode == "scan":
 
-            symbol = text.upper().strip()
+            symbol = (
+                text.upper()
+                .strip()
+            )
 
             if (
                 not symbol.isalpha()
                 or len(symbol) > 6
             ):
-                await update.message.reply_text(
-                    "⚠️ اكتبي رمز سهم صحيح.\n\n"
-                    "مثال: NVDA"
+
+                await (
+                    update.message
+                    .reply_text(
+                        "⚠️ اكتبي رمز "
+                        "سهم صحيح.\n\n"
+                        "مثال: NVDA"
+                    )
                 )
+
                 return
 
-            await update.message.reply_text(
-                f"🔎 جاري تحليل {symbol}...\n"
-                "⏳ لحظة..."
+            await (
+                update.message
+                .reply_text(
+                    f"🔎 جاري تحليل "
+                    f"{symbol}...\n"
+                    "⏳ لحظة..."
+                )
             )
 
-            trend = get_stock_trend(
-                symbol
+            trend = (
+                get_stock_trend(
+                    symbol
+                )
             )
 
-            data = get_option_chain(
-                symbol
+            data = (
+                get_option_chain(
+                    symbol
+                )
             )
 
-            contracts = get_top_contracts(
-                data,
-                trend
+            contracts = (
+                get_top_contracts(
+                    data,
+                    trend
+                )
             )
 
             watched_contract = None
 
             for contract in contracts:
 
-                if contract["side"] != trend["bias"]:
-                    continue
-
-                if contract["score"] < MIN_TOP_SCORE:
-                    continue
-
-                if contract["uoa_score"] < MIN_TOP_UOA:
-                    continue
-
-                if contract["ask"] > MAX_OPTION_ASK:
+                if (
+                    contract["side"]
+                    != trend["bias"]
+                ):
                     continue
 
                 if (
-                    contract["decision"]["label"]
+                    contract["score"]
+                    < MIN_TOP_SCORE
+                ):
+                    continue
+
+                if (
+                    contract["uoa_score"]
+                    < MIN_TOP_UOA
+                ):
+                    continue
+
+                if (
+                    contract["ask"]
+                    > MAX_OPTION_ASK
+                ):
+                    continue
+
+                if (
+                    contract[
+                        "decision"
+                    ][
+                        "label"
+                    ]
                     != "🟡 انتظار تأكيد"
                 ):
                     continue
 
-                watched_contract = contract
+                watched_contract = (
+                    contract
+                )
+
                 break
 
-            await update.message.reply_text(
-                format_top_contracts(
-                    symbol,
-                    contracts,
-                    trend
-                ),
-                reply_markup=main_menu(),
+            await (
+                update.message
+                .reply_text(
+                    format_top_contracts(
+                        symbol,
+                        contracts,
+                        trend
+                    ),
+                    reply_markup=
+                        main_menu(),
+                )
             )
 
             if watched_contract:
 
-                added = add_pending_watch(
-                    chat_id,
-                    symbol,
-                    watched_contract,
-                    trend
+                added = (
+                    add_pending_watch(
+                        chat_id,
+                        symbol,
+                        watched_contract,
+                        trend
+                    )
                 )
 
                 if added:
-                    await update.message.reply_text(
-                        format_watch_added(
-                            symbol,
-                            watched_contract
+
+                    await (
+                        update.message
+                        .reply_text(
+                            format_watch_added(
+                                symbol,
+                                watched_contract
+                            )
                         )
                     )
 
-            context.user_data["mode"] = None
+            context.user_data[
+                "mode"
+            ] = None
 
         elif mode == "contract":
 
-            parts = text.split()
+            parts = (
+                text.split()
+            )
 
             if len(parts) != 8:
                 raise ValueError
 
-            symbol = parts[0].upper()
-            direction = parts[1].upper()
-            strike = float(parts[2])
-            dte = int(parts[3])
-            delta = float(parts[4])
-            volume = int(parts[5])
-            oi = int(parts[6])
-            spread = float(parts[7])
-
-            raw_score = contract_score(
-                delta,
-                volume,
-                oi,
-                spread,
-                dte
+            symbol = (
+                parts[0].upper()
             )
 
-            score = normalize_contract_score(
-                raw_score
+            direction = (
+                parts[1].upper()
             )
 
-            await update.message.reply_text(
-                f"📊 تحليل العقد\n\n"
-                f"السهم: {symbol}\n"
-                f"الاتجاه: {direction}\n"
-                f"Strike: {strike}\n"
-                f"DTE: {dte}\n"
-                f"Delta: {delta}\n"
-                f"Volume: {volume:,}\n"
-                f"OI: {oi:,}\n"
-                f"Spread: {spread}%\n\n"
-                f"⭐ الجودة: {score}/100\n"
-                f"{rating(score)}",
-                reply_markup=main_menu(),
+            strike = float(
+                parts[2]
             )
 
-            context.user_data["mode"] = None
+            dte = int(
+                parts[3]
+            )
+
+            delta = float(
+                parts[4]
+            )
+
+            volume = int(
+                parts[5]
+            )
+
+            oi = int(
+                parts[6]
+            )
+
+            spread = float(
+                parts[7]
+            )
+
+            raw_score = (
+                contract_score(
+                    delta,
+                    volume,
+                    oi,
+                    spread,
+                    dte
+                )
+            )
+
+            score = (
+                normalize_contract_score(
+                    raw_score
+                )
+            )
+
+            await (
+                update.message
+                .reply_text(
+                    f"📊 تحليل العقد\n\n"
+                    f"السهم: {symbol}\n"
+                    f"الاتجاه: {direction}\n"
+                    f"Strike: {strike}\n"
+                    f"DTE: {dte}\n"
+                    f"Delta: {delta}\n"
+                    f"Volume: {volume:,}\n"
+                    f"OI: {oi:,}\n"
+                    f"Spread: {spread}%\n\n"
+                    f"⭐ الجودة: "
+                    f"{score}/100\n"
+                    f"{rating(score)}",
+                    reply_markup=
+                        main_menu(),
+                )
+            )
+
+            context.user_data[
+                "mode"
+            ] = None
 
         elif mode == "opportunity":
 
-            parts = text.split()
+            parts = (
+                text.split()
+            )
 
             if len(parts) != 5:
                 raise ValueError
 
-            symbol = parts[0].upper()
-            direction = parts[1].upper()
-            momentum = float(parts[2])
-            volume = float(parts[3])
-            trend_score = float(parts[4])
+            symbol = (
+                parts[0].upper()
+            )
+
+            direction = (
+                parts[1].upper()
+            )
+
+            momentum = float(
+                parts[2]
+            )
+
+            volume = float(
+                parts[3]
+            )
+
+            trend_score = float(
+                parts[4]
+            )
 
             score = min(
                 round(
@@ -1680,54 +2390,90 @@ async def analyze_message(
                         momentum * 0.4
                         + volume * 0.3
                         + trend_score * 0.3
-                    ) * 10
+                    )
+                    * 10
                 ),
                 100
             )
 
-            await update.message.reply_text(
-                f"🎯 تقييم الفرصة\n\n"
-                f"السهم: {symbol}\n"
-                f"الاتجاه: {direction}\n"
-                f"⭐ النتيجة: {score}/100\n"
-                f"{rating(score)}",
-                reply_markup=main_menu(),
+            await (
+                update.message
+                .reply_text(
+                    f"🎯 تقييم الفرصة\n\n"
+                    f"السهم: "
+                    f"{symbol}\n"
+                    f"الاتجاه: "
+                    f"{direction}\n"
+                    f"⭐ النتيجة: "
+                    f"{score}/100\n"
+                    f"{rating(score)}",
+                    reply_markup=
+                        main_menu(),
+                )
             )
 
-            context.user_data["mode"] = None
+            context.user_data[
+                "mode"
+            ] = None
 
         else:
-            await update.message.reply_text(
-                "اضغطي /start واختاري الخدمة.",
-                reply_markup=main_menu(),
+
+            await (
+                update.message
+                .reply_text(
+                    "اضغطي /start "
+                    "واختاري الخدمة.",
+                    reply_markup=
+                        main_menu(),
+                )
             )
 
-    except requests.exceptions.RequestException as e:
+    except (
+        requests.exceptions
+        .RequestException
+    ) as e:
+
         print(
             "MARKETDATA ERROR:",
             e
         )
 
-        await update.message.reply_text(
-            "⚠️ تعذر الاتصال ببيانات السوق حاليًا.",
-            reply_markup=main_menu(),
+        await (
+            update.message
+            .reply_text(
+                "⚠️ تعذر الاتصال "
+                "ببيانات السوق حاليًا.",
+                reply_markup=
+                    main_menu(),
+            )
         )
 
     except Exception as e:
+
         print(
             "ERROR:",
             e
         )
 
-        await update.message.reply_text(
-            "⚠️ حصل خطأ أثناء تحليل البيانات.",
-            reply_markup=main_menu(),
+        await (
+            update.message
+            .reply_text(
+                "⚠️ حصل خطأ أثناء "
+                "تحليل البيانات.",
+                reply_markup=
+                    main_menu(),
+            )
         )
 
 
-async def post_init(application):
+async def post_init(
+    application
+):
+
     application.create_task(
-        monitor_pending(application)
+        monitor_pending(
+            application
+        )
     )
 
     print(
@@ -1736,6 +2482,7 @@ async def post_init(application):
 
 
 def main():
+
     if not TOKEN:
         raise RuntimeError(
             "BOT_TOKEN is missing"
