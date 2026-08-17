@@ -2002,6 +2002,12 @@ def main_menu():
         ],
         [
             InlineKeyboardButton(
+                "📈 شارت السهم",
+                callback_data="chart"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "ℹ️ طريقة الاستخدام",
                 callback_data="help"
             )
@@ -2424,6 +2430,17 @@ async def buttons(
             "MOMENTUM VOLUME TREND"
         )
 
+    elif query.data == "chart":
+
+        context.user_data[
+            "mode"
+        ] = "chart"
+
+        await query.message.reply_text(
+            "📈 اكتب رمز السهم:\n\n"
+            "مثال:\nTSLA"
+        )
+
     elif query.data == "help":
 
         await query.message.reply_text(
@@ -2434,6 +2451,9 @@ async def buttons(
 
             "🔎 البحث اليدوي: "
             "اكتب رمز أي سهم.\n\n"
+
+            "📈 شارت السهم: "
+            "اكتب رمز السهم لعرض الشارت.\n\n"
 
             "🟢 تأكيد الدخول "
             "يظهر أثناء السوق فقط.\n\n"
@@ -2747,6 +2767,41 @@ async def analyze_message(
                 f"⭐ النتيجة: "
                 f"{score}/100",
 
+                reply_markup=main_menu()
+            )
+
+            context.user_data[
+                "mode"
+            ] = None
+
+        elif mode == "chart":
+
+            symbol = (
+                text.upper()
+                .strip()
+            )
+
+            if (
+                not symbol.isalpha()
+                or len(symbol) > 6
+            ):
+
+                await update.message.reply_text(
+                    "⚠️ اكتب رمز سهم صحيح.\n\n"
+                    "مثال: TSLA"
+                )
+
+                return
+
+            context.user_data[
+                "chart_symbol"
+            ] = symbol
+
+            await update.message.reply_text(
+                f"📈 تم اختيار {symbol}\n\n"
+                "الخطوة التالية: "
+                "اختيار إطار الشارت "
+                "15 دقيقة / ساعة / يومي.",
                 reply_markup=main_menu()
             )
 
