@@ -1,5 +1,6 @@
 import os
 import time
+import math
 import asyncio
 import requests
 import io
@@ -96,6 +97,7 @@ PENDING_WATCHES = {}
 # =========================================================
 
 def _allowed(update):
+
     user = update.effective_user
 
     return (
@@ -493,27 +495,19 @@ def get_stock_trend(symbol):
 
     if continuation_score >= 4:
 
-        continuation_label = (
-            "🔥 مستمر بقوة"
-        )
+        continuation_label = "🔥 مستمر بقوة"
 
     elif continuation_score >= 2:
 
-        continuation_label = (
-            "🟢 مستمر"
-        )
+        continuation_label = "🟢 مستمر"
 
     elif continuation_score >= 0:
 
-        continuation_label = (
-            "🟡 متماسك"
-        )
+        continuation_label = "🟡 متماسك"
 
     else:
 
-        continuation_label = (
-            "⚠️ بدأ يضعف"
-        )
+        continuation_label = "⚠️ بدأ يضعف"
 
     return {
         "bias": bias,
@@ -584,8 +578,7 @@ def get_intraday_15m(symbol):
 
     change_3bars = (
         (
-            last_price
-            - closes[-4]
+            last_price - closes[-4]
         )
         / closes[-4]
         * 100
@@ -622,24 +615,16 @@ def get_intraday_15m(symbol):
 # CHART DATA
 # =========================================================
 
-def get_chart_data(
+def get_raw_chart_data(
     symbol,
-    resolution
+    resolution,
+    countback
 ):
 
     url = (
         f"https://api.marketdata.app/"
         f"v1/stocks/candles/{resolution}/{symbol}/"
     )
-
-    if resolution == "15":
-        countback = 60
-
-    elif resolution == "60":
-        countback = 60
-
-    else:
-        countback = 70
 
     response = requests.get(
         url,
@@ -669,45 +654,225 @@ def get_chart_data(
     closes = data.get("c", [])
     timestamps = data.get("t", [])
 
-    if (
-        len(opens) < 20
-        or len(highs) < 20
-        or len(lows) < 20
-        or len(closes) < 20
-    ):
+    count = min(
+        len(opens),
+        len(highs),
+        len(lows),
+        len(closes),
+        len(timestamps)
+    )
+
+    if count < 20:
 
         raise ValueError(
             "بيانات الشارت غير كافية."
         )
 
-    opens = [
-        float(x)
-        for x in opens
-    ]
-
-    highs = [
-        float(x)
-        for x in highs
-    ]
-
-    lows = [
-        float(x)
-        for x in lows
-    ]
-
-    closes = [
-        float(x)
-        for x in closes
-    ]
-
     return {
-        "opens": opens,
-        "highs": highs,
-        "lows": lows,
-        "closes": closes,
-        "timestamps": timestamps,
+        "opens": [
+            float(x)
+            for x in opens[:count]
+        ],
+
+        "highs": [
+            float(x)
+            for x in highs[:count]
+        ],
+
+        "lows": [
+            float(x)
+            for x in lows[:count]
+        ],
+
+        "closes": [
+            float(x)
+            for x in closes[:count]
+        ],
+
+        "timestamps": [
+            int(x)
+            for x in timestamps[:count]
+        ],
     }
 
+
+# =========================================================
+# 4 HOUR AGGREGATION
+# =========================================================
+
+def aggregate_4hour_data(
+    hourly_data
+):
+
+    opens = hourly_data["opens"]
+    highs = hourly_data["highs"]
+    lows = hourly_data["lows"]
+    closes = hourly_data["closes"]
+    timestamps = hourly_data["timestamps"]
+
+    grouped = {}
+
+    ny_tz = ZoneInfo(
+        "America/New_York"
+    )
+
+    for i in range(
+        len(closes)
+    ):
+
+        dt = datetime.fromtimestamp(
+            timestamps[i],
+            ny_tz
+        )
+
+        market_start_minutes = (
+            9 * 60 + 30
+        )
+
+        current_minutes = (
+            dt.hour * 60
+            + dt.minute
+        )
+
+        minutes_from_open = (
+            current_minutes
+            - market_start_minutes
+        )
+
+        if minutes_from_open < 0:
+            continue
+
+        bucket = (
+            minutes_from_open
+            // 240
+        )
+
+        key = (
+            dt.date(),
+            bucket
+        )
+
+        if key not in grouped:
+
+            grouped[key] = {
+                "open":
+                    opens[i],
+
+                "high":
+                    highs[i],
+
+                "low":
+                    lows[i],
+
+                "close":
+                    closes[i],
+
+                "timestamp":
+                    timestamps[i],
+            }
+
+        else:
+
+            grouped[key]["high"] = max(
+                grouped[key]["high"],
+                highs[i]
+            )
+
+            grouped[key]["low"] = min(
+                grouped[key]["low"],
+                lows[i]
+            )
+
+            grouped[key]["close"] = (
+                closes[i]
+            )
+
+    values = list(
+        grouped.values()
+    )
+
+    values.sort(
+        key=lambda x:
+            x["timestamp"]
+    )
+
+    if len(values) < 20:
+
+        raise ValueError(
+            "بيانات 4 ساعات غير كافية."
+        )
+
+    return {
+        "opens": [
+            item["open"]
+            for item in values
+        ],
+
+        "highs": [
+            item["high"]
+            for item in values
+        ],
+
+        "lows": [
+            item["low"]
+            for item in values
+        ],
+
+        "closes": [
+            item["close"]
+            for item in values
+        ],
+
+        "timestamps": [
+            item["timestamp"]
+            for item in values
+        ],
+    }
+
+
+def get_chart_data(
+    symbol,
+    resolution
+):
+
+    if resolution == "15":
+
+        return get_raw_chart_data(
+            symbol,
+            "15",
+            90
+        )
+
+    if resolution == "60":
+
+        return get_raw_chart_data(
+            symbol,
+            "60",
+            90
+        )
+
+    if resolution == "240":
+
+        hourly_data = get_raw_chart_data(
+            symbol,
+            "60",
+            260
+        )
+
+        return aggregate_4hour_data(
+            hourly_data
+        )
+
+    return get_raw_chart_data(
+        symbol,
+        "D",
+        100
+    )
+
+
+# =========================================================
+# INDICATORS
+# =========================================================
 
 def moving_average(
     values,
@@ -737,8 +902,474 @@ def moving_average(
     return result
 
 
+def calculate_recent_volatility(
+    closes
+):
+
+    returns = []
+
+    recent = closes[-21:]
+
+    for i in range(
+        1,
+        len(recent)
+    ):
+
+        previous = recent[
+            i - 1
+        ]
+
+        current = recent[
+            i
+        ]
+
+        if previous <= 0:
+            continue
+
+        returns.append(
+            math.log(
+                current / previous
+            )
+        )
+
+    if len(returns) < 2:
+        return 0.01
+
+    mean_return = (
+        sum(returns)
+        / len(returns)
+    )
+
+    variance = (
+        sum(
+            (
+                r
+                - mean_return
+            ) ** 2
+            for r in returns
+        )
+        / (
+            len(returns)
+            - 1
+        )
+    )
+
+    return max(
+        math.sqrt(
+            variance
+        ),
+        0.001
+    )
+
+
+def linear_trend_pct(
+    closes,
+    lookback=20
+):
+
+    values = closes[
+        -lookback:
+    ]
+
+    n = len(
+        values
+    )
+
+    if n < 5:
+        return 0
+
+    x_mean = (
+        n - 1
+    ) / 2
+
+    y_values = [
+        math.log(
+            max(
+                value,
+                0.0001
+            )
+        )
+        for value in values
+    ]
+
+    y_mean = (
+        sum(y_values)
+        / n
+    )
+
+    numerator = 0
+    denominator = 0
+
+    for i, y in enumerate(
+        y_values
+    ):
+
+        numerator += (
+            (i - x_mean)
+            * (y - y_mean)
+        )
+
+        denominator += (
+            i - x_mean
+        ) ** 2
+
+    if denominator == 0:
+        return 0
+
+    slope = (
+        numerator
+        / denominator
+    )
+
+    return slope
+
+
 # =========================================================
-# CANDLESTICK CHART
+# FORECAST ENGINE
+# =========================================================
+
+def build_forecast(
+    closes,
+    highs,
+    lows,
+    resolution
+):
+
+    last_price = closes[-1]
+
+    sma10 = moving_average(
+        closes,
+        10
+    )
+
+    sma20 = moving_average(
+        closes,
+        20
+    )
+
+    volatility = (
+        calculate_recent_volatility(
+            closes
+        )
+    )
+
+    trend_slope = (
+        linear_trend_pct(
+            closes,
+            20
+        )
+    )
+
+    recent_change_5 = (
+        (
+            closes[-1]
+            - closes[-6]
+        )
+        / closes[-6]
+        if (
+            len(closes) >= 6
+            and closes[-6] != 0
+        )
+        else 0
+    )
+
+    ma_bias = (
+        (
+            sma10[-1]
+            - sma20[-1]
+        )
+        / last_price
+        if last_price > 0
+        else 0
+    )
+
+    momentum_component = (
+        recent_change_5
+        / 5
+    )
+
+    drift = (
+        trend_slope * 0.50
+        + momentum_component * 0.25
+        + ma_bias * 0.25
+    )
+
+    max_drift = max(
+        volatility * 0.90,
+        0.002
+    )
+
+    drift = max(
+        -max_drift,
+        min(
+            drift,
+            max_drift
+        )
+    )
+
+    if resolution == "D":
+
+        future_bars = 10
+
+    else:
+
+        future_bars = 12
+
+    recent_highs = highs[
+        -20:
+    ]
+
+    recent_lows = lows[
+        -20:
+    ]
+
+    resistance = max(
+        recent_highs
+    )
+
+    support = min(
+        recent_lows
+    )
+
+    expected = [
+        last_price
+    ]
+
+    upper = [
+        last_price
+    ]
+
+    lower = [
+        last_price
+    ]
+
+    for step in range(
+        1,
+        future_bars + 1
+    ):
+
+        decay = (
+            1
+            - (
+                step
+                / (
+                    future_bars
+                    * 1.8
+                )
+            )
+        )
+
+        decay = max(
+            decay,
+            0.35
+        )
+
+        wave = (
+            math.sin(
+                step * 1.25
+            )
+            * volatility
+            * 0.30
+        )
+
+        projected_return = (
+            drift
+            * decay
+            + wave
+        )
+
+        projected = (
+            expected[-1]
+            * math.exp(
+                projected_return
+            )
+        )
+
+        if (
+            drift > 0
+            and projected > resistance
+        ):
+
+            projected = (
+                projected * 0.88
+                + resistance * 0.12
+            )
+
+        elif (
+            drift < 0
+            and projected < support
+        ):
+
+            projected = (
+                projected * 0.88
+                + support * 0.12
+            )
+
+        expected.append(
+            projected
+        )
+
+        uncertainty = (
+            volatility
+            * math.sqrt(
+                step
+            )
+            * 0.80
+        )
+
+        upper.append(
+            projected
+            * math.exp(
+                uncertainty
+            )
+        )
+
+        lower.append(
+            projected
+            * math.exp(
+                -uncertainty
+            )
+        )
+
+    expected_end = expected[-1]
+
+    change_pct = (
+        (
+            expected_end
+            - last_price
+        )
+        / last_price
+        * 100
+        if last_price > 0
+        else 0
+    )
+
+    if change_pct >= 1.0:
+
+        scenario = "BULLISH"
+        scenario_ar = "🟢 صاعد"
+
+        target1 = max(
+            expected[
+                max(
+                    1,
+                    future_bars // 2
+                )
+            ],
+            last_price
+        )
+
+        target2 = max(
+            expected
+        )
+
+        invalidation = support
+
+    elif change_pct <= -1.0:
+
+        scenario = "BEARISH"
+        scenario_ar = "🔴 هابط"
+
+        target1 = min(
+            expected[
+                max(
+                    1,
+                    future_bars // 2
+                )
+            ],
+            last_price
+        )
+
+        target2 = min(
+            expected
+        )
+
+        invalidation = resistance
+
+    else:
+
+        scenario = "SIDEWAYS"
+        scenario_ar = "🟡 عرضي"
+
+        target1 = resistance
+        target2 = support
+
+        invalidation = (
+            support
+            if last_price
+            < (
+                support
+                + resistance
+            ) / 2
+            else resistance
+        )
+
+    confidence_raw = (
+        abs(drift)
+        / max(
+            volatility,
+            0.001
+        )
+    )
+
+    confidence = min(
+        85,
+        max(
+            45,
+            round(
+                50
+                + confidence_raw * 15
+            )
+        )
+    )
+
+    return {
+        "expected":
+            expected,
+
+        "upper":
+            upper,
+
+        "lower":
+            lower,
+
+        "future_bars":
+            future_bars,
+
+        "scenario":
+            scenario,
+
+        "scenario_ar":
+            scenario_ar,
+
+        "target1":
+            target1,
+
+        "target2":
+            target2,
+
+        "invalidation":
+            invalidation,
+
+        "support":
+            support,
+
+        "resistance":
+            resistance,
+
+        "change_pct":
+            change_pct,
+
+        "confidence":
+            confidence,
+
+        "volatility":
+            volatility,
+    }
+
+
+# =========================================================
+# FORECAST CHART
 # =========================================================
 
 def make_chart(
@@ -756,6 +1387,27 @@ def make_chart(
     lows = data["lows"]
     closes = data["closes"]
 
+    candle_count = min(
+        55,
+        len(closes)
+    )
+
+    opens = opens[
+        -candle_count:
+    ]
+
+    highs = highs[
+        -candle_count:
+    ]
+
+    lows = lows[
+        -candle_count:
+    ]
+
+    closes = closes[
+        -candle_count:
+    ]
+
     sma10 = moving_average(
         closes,
         10
@@ -766,36 +1418,48 @@ def make_chart(
         20
     )
 
+    forecast = build_forecast(
+        closes,
+        highs,
+        lows,
+        resolution
+    )
+
     last_price = closes[-1]
 
-    recent_highs = highs[-20:]
-    recent_lows = lows[-20:]
+    support = forecast[
+        "support"
+    ]
 
-    resistance = max(
-        recent_highs
-    )
-
-    support = min(
-        recent_lows
-    )
+    resistance = forecast[
+        "resistance"
+    ]
 
     if resolution == "15":
 
         timeframe = "15 MIN"
+        timeframe_ar = "15 دقيقة"
 
     elif resolution == "60":
 
         timeframe = "1 HOUR"
+        timeframe_ar = "ساعة"
+
+    elif resolution == "240":
+
+        timeframe = "4 HOURS"
+        timeframe_ar = "4 ساعات"
 
     else:
 
         timeframe = "DAILY"
+        timeframe_ar = "يومي"
 
     fig, ax = plt.subplots(
-        figsize=(11, 7)
+        figsize=(12, 7)
     )
 
-    candle_width = 0.6
+    candle_width = 0.62
 
     for i in range(
         len(closes)
@@ -806,20 +1470,27 @@ def make_chart(
         low_price = lows[i]
         close_price = closes[i]
 
-        if close_price >= open_price:
+        if (
+            close_price
+            >= open_price
+        ):
 
-            candle_color = "#16a34a"
+            candle_color = (
+                "#16A34A"
+            )
 
         else:
 
-            candle_color = "#dc2626"
+            candle_color = (
+                "#DC2626"
+            )
 
         ax.vlines(
             i,
             low_price,
             high_price,
             color=candle_color,
-            linewidth=1
+            linewidth=1.0
         )
 
         body_bottom = min(
@@ -834,11 +1505,16 @@ def make_chart(
 
         if body_height == 0:
 
-            body_height = 0.01
+            body_height = max(
+                last_price
+                * 0.0003,
+                0.01
+            )
 
         rectangle = Rectangle(
             (
-                i - candle_width / 2,
+                i
+                - candle_width / 2,
                 body_bottom
             ),
             candle_width,
@@ -852,40 +1528,73 @@ def make_chart(
             rectangle
         )
 
-    x = list(
+    historical_x = list(
         range(
             len(closes)
         )
     )
 
     ax.plot(
-        x,
+        historical_x,
         sma10,
-        linewidth=1.3,
+        linewidth=1.25,
         label="SMA 10"
     )
 
     ax.plot(
-        x,
+        historical_x,
         sma20,
-        linewidth=1.3,
+        linewidth=1.25,
         label="SMA 20"
     )
 
-    ax.axhline(
-        resistance,
-        linestyle="--",
-        linewidth=1.2,
-        label=(
-            f"Resistance "
-            f"{resistance:.2f}"
+    future_x = list(
+        range(
+            len(closes) - 1,
+            len(closes)
+            + forecast[
+                "future_bars"
+            ]
         )
+    )
+
+    ax.plot(
+        future_x,
+        forecast["expected"],
+        linestyle="--",
+        linewidth=2.4,
+        label="Expected path"
+    )
+
+    ax.fill_between(
+        future_x,
+        forecast["lower"],
+        forecast["upper"],
+        alpha=0.12,
+        label="Forecast range"
+    )
+
+    ax.axvline(
+        len(closes) - 0.5,
+        linestyle=":",
+        linewidth=1.2
+    )
+
+    ax.text(
+        len(closes) + 0.5,
+        max(
+            forecast["upper"]
+        ),
+        "FORECAST",
+        fontsize=10,
+        fontweight="bold"
     )
 
     ax.axhline(
         support,
         linestyle="--",
-        linewidth=1.2,
+        linewidth=1,
+        alpha=0.7,
         label=(
             f"Support "
             f"{support:.2f}"
@@ -893,22 +1602,61 @@ def make_chart(
     )
 
     ax.axhline(
-        last_price,
-        linestyle=":",
+        resistance,
+        linestyle="--",
         linewidth=1,
+        alpha=0.7,
         label=(
-            f"Last "
-            f"{last_price:.2f}"
+            f"Resistance "
+            f"{resistance:.2f}"
         )
+    )
+
+    ax.scatter(
+        [
+            len(closes)
+            - 1
+            + max(
+                1,
+                forecast[
+                    "future_bars"
+                ] // 2
+            )
+        ],
+        [
+            forecast[
+                "target1"
+            ]
+        ],
+        s=45,
+        zorder=5
+    )
+
+    ax.scatter(
+        [
+            len(closes)
+            - 1
+            + forecast[
+                "future_bars"
+            ]
+        ],
+        [
+            forecast[
+                "target2"
+            ]
+        ],
+        s=55,
+        zorder=5
     )
 
     ax.set_title(
         (
             f"{symbol} | "
             f"{timeframe} | "
-            f"${last_price:.2f}"
+            f"${last_price:.2f} | "
+            f"Forecast"
         ),
-        fontsize=16,
+        fontsize=15,
         fontweight="bold"
     )
 
@@ -919,6 +1667,10 @@ def make_chart(
     ax.set_xlim(
         -1,
         len(closes)
+        + forecast[
+            "future_bars"
+        ]
+        + 2
     )
 
     ax.grid(
@@ -928,7 +1680,7 @@ def make_chart(
 
     ax.legend(
         loc="best",
-        fontsize=9
+        fontsize=8
     )
 
     ax.tick_params(
@@ -943,7 +1695,7 @@ def make_chart(
     plt.savefig(
         image,
         format="png",
-        dpi=160,
+        dpi=165,
         bbox_inches="tight"
     )
 
@@ -953,74 +1705,55 @@ def make_chart(
 
     image.seek(0)
 
-    if (
-        last_price > sma10[-1]
-        and sma10[-1] > sma20[-1]
-    ):
+    if resolution == "D":
 
-        direction = (
-            "🟢 صاعد"
-        )
-
-    elif (
-        last_price < sma10[-1]
-        and sma10[-1] < sma20[-1]
-    ):
-
-        direction = (
-            "🔴 هابط"
+        forecast_period_text = (
+            "10 جلسات قادمة"
         )
 
     else:
 
-        direction = (
-            "🟡 محايد"
+        forecast_period_text = (
+            f"{forecast['future_bars']} "
+            f"شمعة قادمة"
         )
-
-    distance_to_resistance = (
-        (
-            resistance
-            - last_price
-        )
-        / last_price
-        * 100
-        if last_price > 0
-        else 0
-    )
-
-    distance_to_support = (
-        (
-            last_price
-            - support
-        )
-        / last_price
-        * 100
-        if last_price > 0
-        else 0
-    )
 
     caption = (
-        f"📈 {symbol} — {timeframe}\n\n"
+        f"🔮 {symbol} — {timeframe_ar}\n\n"
 
-        f"💵 السعر: "
+        f"💵 السعر الحالي: "
         f"${last_price:.2f}\n"
 
-        f"📊 الاتجاه: "
-        f"{direction}\n\n"
+        f"📈 السيناريو المرجح: "
+        f"{forecast['scenario_ar']}\n"
+
+        f"⏳ التوقع: "
+        f"{forecast_period_text}\n"
+
+        f"📊 الحركة المتوقعة حتى نهاية المسار: "
+        f"{forecast['change_pct']:+.1f}%\n\n"
+
+        f"🎯 الهدف 1: "
+        f"${forecast['target1']:.2f}\n"
+
+        f"🎯 الهدف 2: "
+        f"${forecast['target2']:.2f}\n"
+
+        f"🛑 إلغاء السيناريو: "
+        f"${forecast['invalidation']:.2f}\n\n"
 
         f"🟢 الدعم: "
-        f"${support:.2f} "
-        f"({distance_to_support:.1f}%)\n"
+        f"${support:.2f}\n"
 
         f"🔴 المقاومة: "
-        f"${resistance:.2f} "
-        f"({distance_to_resistance:.1f}%)\n\n"
+        f"${resistance:.2f}\n"
 
-        f"〰️ SMA10: "
-        f"${sma10[-1]:.2f}\n"
+        f"📐 الثقة الفنية: "
+        f"{forecast['confidence']}%\n\n"
 
-        f"〰️ SMA20: "
-        f"${sma20[-1]:.2f}"
+        "⚠️ المسار توقع احتمالي مبني على "
+        "حركة السعر والزخم والتذبذب والمتوسطات، "
+        "وليس سعرًا مستقبليًا مؤكدًا."
     )
 
     return (
@@ -1042,12 +1775,18 @@ def chart_timeframe_menu():
                 "ساعة",
                 callback_data="chart_60"
             ),
+        ],
+        [
+            InlineKeyboardButton(
+                "4 ساعات",
+                callback_data="chart_240"
+            ),
 
             InlineKeyboardButton(
                 "يومي",
                 callback_data="chart_D"
             ),
-        ]
+        ],
     ]
 
     return InlineKeyboardMarkup(
@@ -2122,25 +2861,11 @@ async def monitor_pending(
                     "last_checked_at"
                 ] = now
 
-                symbol = (
-                    watch["symbol"]
-                )
-
-                side = (
-                    watch["side"]
-                )
-
-                strike = (
-                    watch["strike"]
-                )
-
-                expiry_date = (
-                    watch["expiry_date"]
-                )
-
-                chat_id = (
-                    watch["chat_id"]
-                )
+                symbol = watch["symbol"]
+                side = watch["side"]
+                strike = watch["strike"]
+                expiry_date = watch["expiry_date"]
+                chat_id = watch["chat_id"]
 
                 trend = (
                     await asyncio.to_thread(
@@ -2383,21 +3108,14 @@ def scan_top10():
             if decision["rank"] == 0:
                 continue
 
-            result[
-                "contract"
-            ] = contract
-
-            result[
-                "internal_score"
-            ] = (
+            result["contract"] = contract
+            result["internal_score"] = (
                 contract[
                     "internal_score"
                 ]
             )
 
-            result[
-                "decision"
-            ] = decision
+            result["decision"] = decision
 
             results.append(
                 result
@@ -2469,7 +3187,7 @@ def main_menu():
         ],
         [
             InlineKeyboardButton(
-                "📈 شارت السهم",
+                "🔮 الشارت المتوقع",
                 callback_data="chart"
             )
         ],
@@ -2914,7 +3632,7 @@ async def buttons(
         ] = "chart"
 
         await query.message.reply_text(
-            "📈 اكتب رمز السهم:\n\n"
+            "🔮 اكتب رمز السهم:\n\n"
             "مثال:\nTSLA"
         )
 
@@ -2931,7 +3649,7 @@ async def buttons(
         if not symbol:
 
             await query.message.reply_text(
-                "⚠️ اختر شارت السهم "
+                "⚠️ اختر الشارت المتوقع "
                 "واكتب الرمز أولًا.",
                 reply_markup=main_menu()
             )
@@ -2946,7 +3664,7 @@ async def buttons(
         )
 
         await query.message.reply_text(
-            f"📈 جاري تجهيز شارت "
+            f"🔮 جاري بناء المسار المتوقع لـ "
             f"{symbol}..."
         )
 
@@ -2977,7 +3695,7 @@ async def buttons(
             )
 
             await query.message.reply_text(
-                "⚠️ تعذر إنشاء الشارت حاليًا.",
+                "⚠️ تعذر إنشاء الشارت المتوقع حاليًا.",
                 reply_markup=main_menu()
             )
 
@@ -2992,8 +3710,14 @@ async def buttons(
             "🔎 البحث اليدوي: "
             "اكتب رمز أي سهم.\n\n"
 
-            "📈 شارت السهم: "
-            "شموع 15 دقيقة أو ساعة أو يومي.\n\n"
+            "🔮 الشارت المتوقع: "
+            "يعرض الشموع الحالية ثم "
+            "مسارًا احتماليًا للمستقبل.\n\n"
+
+            "اليومي: 10 جلسات قادمة.\n"
+            "4 ساعات: 12 شمعة.\n"
+            "الساعة: 12 شمعة.\n"
+            "15 دقيقة: 12 شمعة.\n\n"
 
             "🟢 تأكيد الدخول "
             "يظهر أثناء السوق فقط.\n\n"
@@ -3189,37 +3913,14 @@ async def analyze_message(
             if len(parts) != 8:
                 raise ValueError
 
-            symbol = (
-                parts[0].upper()
-            )
-
-            direction = (
-                parts[1].upper()
-            )
-
-            strike = float(
-                parts[2]
-            )
-
-            dte = int(
-                parts[3]
-            )
-
-            delta = float(
-                parts[4]
-            )
-
-            volume = int(
-                parts[5]
-            )
-
-            oi = int(
-                parts[6]
-            )
-
-            spread = float(
-                parts[7]
-            )
+            symbol = parts[0].upper()
+            direction = parts[1].upper()
+            strike = float(parts[2])
+            dte = int(parts[3])
+            delta = float(parts[4])
+            volume = int(parts[5])
+            oi = int(parts[6])
+            spread = float(parts[7])
 
             raw_score = (
                 contract_score(
@@ -3266,25 +3967,11 @@ async def analyze_message(
             if len(parts) != 5:
                 raise ValueError
 
-            symbol = (
-                parts[0].upper()
-            )
-
-            direction = (
-                parts[1].upper()
-            )
-
-            momentum = float(
-                parts[2]
-            )
-
-            volume = float(
-                parts[3]
-            )
-
-            trend_score = float(
-                parts[4]
-            )
+            symbol = parts[0].upper()
+            direction = parts[1].upper()
+            momentum = float(parts[2])
+            volume = float(parts[3])
+            trend_score = float(parts[4])
 
             score = min(
                 round(
@@ -3345,8 +4032,8 @@ async def analyze_message(
             ] = None
 
             await update.message.reply_text(
-                f"📈 {symbol}\n\n"
-                "اختر إطار الشارت:",
+                f"🔮 {symbol}\n\n"
+                "اختر إطار التوقع:",
                 reply_markup=chart_timeframe_menu()
             )
 
