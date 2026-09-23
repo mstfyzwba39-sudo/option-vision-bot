@@ -766,6 +766,16 @@ def get_option_chain(symbol):
         params=params,
         timeout=20
     )
+    # A valid option-chain query with no matching contracts returns 404/no_data.
+    # Treat only that response as an empty chain; other HTTP errors remain errors.
+    if response.status_code == 404:
+        try:
+            no_data = response.json()
+        except ValueError:
+            no_data = {}
+        if no_data.get("s") == "no_data":
+            print(f"OPTION CHAIN NO DATA | {symbol} | {params['from']}..{params['to']}", flush=True)
+            return {"s": "ok", "optionSymbol": []}
     response.raise_for_status()
     data = response.json()
 
@@ -8743,16 +8753,19 @@ def _active_contract_line(item):
 
 
 async def _send_contract_alert(application, item, text):
-    message_id = int(item.get("entry_message_id", 0) or 0)
+    # Keep each contract's Telegram reply chain separate across chats/restarts.
+    message_id = int(item.get("last_alert_message_id", 0) or item.get("entry_message_id", 0) or 0)
     if message_id:
         try:
-            return await _send_program_message(application, 
+            sent = await _send_program_message(application,
                 chat_id=item["chat_id"],
                 text=text,
                 reply_to_message_id=message_id,
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
+            item["last_alert_message_id"] = int(sent.message_id)
+            return sent
         except Exception as reply_exc:
             print(
                 "ENTRY MESSAGE REPLY FALLBACK:",
@@ -8761,12 +8774,14 @@ async def _send_contract_alert(application, item, text):
                 flush=True,
             )
 
-    return await _send_program_message(application, 
+    sent = await _send_program_message(application,
         chat_id=item["chat_id"],
         text=text,
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
+    item["last_alert_message_id"] = int(sent.message_id)
+    return sent
 
 
 def evaluate_smart_early_exit(side, pnl_pct, intraday_15m, intraday_1h):
@@ -9429,7 +9444,12 @@ async def monitor_active_contracts(application):
                                     # V109 low-noise: once a trade has exited, it is frozen.
                                     # Do not send comeback/profit messages after any exit.
                                     if not early_exited:
-                                        await _send_contract_alert(application, item, f"💰 ربح العقد وصل {target_to_send}٪\n\n{line}\n💵 السعر الآن ${price:.2f}\n🎯 سعر الدخول ${entry:.2f}")
+                                        # At +100% reply to the +50% alert without
+                                        # repeating the contract line. A jump straight
+                                        # to +100% still identifies the contract.
+                                        show_line = target_to_send == 50 or not item.get("profit_50_sent")
+                                        contract_line = f"\n\n{line}" if show_line else ""
+                                        await _send_contract_alert(application, item, f"💰 ربح العقد وصل {target_to_send}٪{contract_line}\n💵 السعر الآن ${price:.2f}\n🎯 سعر الدخول ${entry:.2f}")
                                         hist["status"] = "SUCCESS"
 
                                         # Mark every lower milestone as consumed so it can
